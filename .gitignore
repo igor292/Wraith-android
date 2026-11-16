@@ -1,0 +1,16 @@
+.gradle/
+.gradle-cache/
+.idea/
+*.iml
+**/build/
+local.properties
+app/libs/
+*.apk
+*.idsig
+*.aab
+*.jks
+*.keystore
+Wraith.Windows/bin/
+Wraith.Windows/obj/
+Wraith.Windows/release/
+.tools/

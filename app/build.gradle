@@ -1,0 +1,76 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'app.wraith.client'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'app.wraith.client'
+        minSdk 26
+        targetSdk 35
+        versionCode 70
+        versionName '0.10.40'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17; coreLibraryDesugaringEnabled true }
+    buildFeatures { buildConfig true }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+    packaging { jniLibs { useLegacyPackaging = true } }
+    lint { abortOnError true }
+    testOptions { unitTests { includeAndroidResources = true; all { systemProperty 'wraith.screens', project.layout.buildDirectory.dir('screens').get().asFile.absolutePath } } }
+}
+
+// gomobile's bindings are JVM classfiles. Android's separate class loader needs DEX,
+// while compiling them into the app itself would collide with libbox's go.Seq classes.
+def xrayDexAssets = layout.buildDirectory.dir('generated/xrayAssets')
+android.sourceSets.main.assets.srcDir(xrayDexAssets)
+def dexXrayBindings = tasks.register('dexXrayBindings', JavaExec) {
+    def bindings = layout.projectDirectory.file('src/main/assets/libXray-classes.jar')
+    def dexJar = xrayDexAssets.map { it.file('libXray-dex.jar') }
+    inputs.file(bindings)
+    outputs.file(dexJar)
+    mainClass = 'com.android.tools.r8.D8'
+    classpath = files(new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/lib/d8.jar"))
+    doFirst {
+        def output = dexJar.get().asFile
+        output.parentFile.mkdirs()
+        args = ['--min-api', android.defaultConfig.minSdk.toString(),
+                '--lib', new File(android.sdkDirectory, "platforms/android-${android.compileSdk}/android.jar").absolutePath,
+                '--output', output.absolutePath, bindings.asFile.absolutePath]
+    }
+    doLast {
+        def generated = new java.util.zip.ZipFile(dexJar.get().asFile)
+        try {
+            if (generated.getEntry('classes.dex') == null) {
+                throw new GradleException('Xray bindings asset has no classes.dex')
+            }
+        } finally {
+            generated.close()
+        }
+    }
+}
+tasks.configureEach {
+    // Lint models read the generated asset directory too; without the dependency Gradle 8.10
+    // rejects lintDebug ("uses this output of task ':app:dexXrayBindings'").
+    if ((name.startsWith('merge') && name.endsWith('Assets')) || name.toLowerCase().contains('lint')) dependsOn(dexXrayBindings)
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+    implementation files('libs/libbox.aar')
+    // JNI classes are kept in assets and loaded child-first by :xray; this avoids DEX duplicates
+    // with sing-box's own go.Seq classes. The AAR contributes only Xray's native libraries.
+    implementation files('libs/libXray.aar')
+    implementation 'androidx.core:core:1.15.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    implementation 'com.google.zxing:core:3.5.3'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'androidx.test:core:1.6.1'
+    testImplementation 'org.json:json:20240303'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}
