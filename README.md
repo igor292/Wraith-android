@@ -22,7 +22,7 @@ Android VPN client for VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC, 
 - **DNS.** Uses the phone's own DNS by default. The provider's DNS from JSON, or your own DoH/DoT address, are opt-in switches.
 - **Privacy.**
   - No analytics or telemetry.
-  - The update check sends only `User-Agent: Wraith/<version>/Android`.
+  - Updates come from GitHub Releases; the check sends only `User-Agent: Wraith/<version>/Android`.
   - Settings are stored encrypted with the Android Keystore; backups are off.
 - **Hardening.**
   - Core control ports (Xray metrics, Clash API) are random per session and the Clash API uses a session secret.
@@ -71,9 +71,9 @@ WRAITH_SCREENS=1 ./gradlew testReleaseUnitTest --tests '*ScreenshotTest*'
 
 The PNGs are written to `app/build/screens`, rendered with Robolectric.
 
-### Updates in forks
+### Updates
 
-`UpdateChecker.MANIFEST_URL` points to the upstream update host. Change it (and `HOST`) to your own server, or remove the update check.
+The app checks the latest GitHub release of `trinity13338/wraith` (`UpdateChecker.REPO`) and installs its APK only if the SHA-256 digest GitHub reports for the asset matches. Downloads may only reach GitHub hosts. Forks should change `REPO`.
 
 ## License
 
