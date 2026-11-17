@@ -33,36 +33,7 @@ Android VPN client for VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC, 
 
 ## Windows
 
-A native Windows client written in Rust (egui) lives in [`wraith-desktop/`](wraith-desktop). It is a port of the Android app:
-
-- the same import (links, subscriptions, Xray and sing-box JSON, balancer configs);
-- the same engines: Xray-core for everything it can run, sing-box for the rest;
-- the same proxy latency check;
-- the same DNS policy and security fixes;
-- the same Material 3 look.
-
-It has two modes. **System proxy** needs no admin rights. **TUN** captures all traffic and needs admin rights; it uses Xray's Wintun inbound, which also allows routing rules per program (`.exe`). Further features:
-
-- tray icon and autostart;
-- settings encrypted with DPAPI;
-- updates from GitHub Releases, verified by SHA-256.
-
-<p>
-<img src="docs/screens/windows-home-dark.png" width="400">
-<img src="docs/screens/windows-settings-dark.png" width="400">
-</p>
-
-Install: download `Wraith-Setup-*.exe` from the Windows release. It installs into `Program Files`, where only administrators can write. A Task Scheduler task with highest privileges starts Wraith elevated without a UAC prompt each time (TUN needs it), and the same mechanism handles autostart. Uninstall from Settings → Apps. The portable zip works too.
-
-Build: `cd wraith-desktop && cargo build --release`. This needs Rust stable with the MSVC toolchain. Put the following next to `Wraith.exe`:
-
-- `xray.exe`, `geoip.dat` and `geosite.dat` from the [Xray-core release](https://github.com/XTLS/Xray-core/releases);
-- `sing-box.exe`, built from `third_party/wraith-core`;
-- `wintun.dll`.
-
-The installer is the same program built with `--features setup`, with the release zip embedded through the `WRAITH_PAYLOAD` environment variable.
-
-Tests: `cargo test`. They validate the generated configs with the real cores when those cores are present. `cargo test -- --ignored` adds end-to-end checks through a local Xray server.
+The Windows client lives in its own repository: **[Wraith-windows](https://github.com/trinity13338/Wraith-windows)**. It is a native Rust app with the same import, the same cores and the same look as this one.
 
 ## Building (Android)
 
