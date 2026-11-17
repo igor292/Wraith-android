@@ -48,7 +48,8 @@ impl Profile {
         if !self.transport.is_empty() && !["tcp", "raw", "hysteria"].contains(&self.transport.as_str()) { kind += &format!(" · {}", self.transport); }
         if self.security == "reality" { kind += " · Reality" } else if self.security == "tls" { kind += " · TLS" }
         if self.servers > 1 { return format!("{kind} · {} {}{}", self.servers, crate::util::plural(self.servers, "сервер", "сервера", "серверов"), if self.balancer { " · авто" } else { "" }); }
-        if self.host.is_empty() { kind } else { format!("{kind} · {}", self.host) }
+        // The address stays out of the list (screenshots, screen sharing); it is in the config view.
+        kind
     }
 }
 
@@ -106,7 +107,7 @@ pub struct AppState {
     pub settings: Obj,
 }
 impl Default for AppState {
-    fn default() -> Self { AppState { schema: 3, selected: String::new(), profiles: vec![], subscriptions: vec![], rules: vec![], settings: defaults() } }
+    fn default() -> Self { AppState { schema: 4, selected: String::new(), profiles: vec![], subscriptions: vec![], rules: vec![], settings: defaults() } }
 }
 impl AppState {
     pub fn selected(&self) -> Option<&Profile> { self.profiles.iter().find(|p| p.id == self.selected) }
@@ -120,7 +121,7 @@ impl AppState {
 pub fn defaults() -> Obj {
     let v = json!({
         // Connection
-        "tunnelMode": "proxy", "mode": "rules", "autoSelect": false, "bypassLan": true, "ipv6": true, "mtu": 1500, "sniff": true,
+        "tunnelMode": "both", "core": "xray", "mode": "rules", "autoSelect": false, "bypassLan": true, "ipMode": "auto", "mtu": 1500, "sniff": true,
         // DNS: the system's resolvers unless the user opts into the provider's or their own.
         "dnsFromJson": false, "customDns": false, "tunnelDns": "https://8.8.8.8/dns-query",
         // Local proxy (127.0.0.1 only unless LAN access with a password)
@@ -152,3 +153,9 @@ pub fn split_values(v: &str) -> Vec<String> {
     }
     out
 }
+
+/// "proxy", "tun" or "both" (TUN plus the Windows system proxy).
+pub fn uses_tun(s: &Obj) -> bool { matches!(s.s("tunnelMode").as_str(), "tun" | "both") }
+pub fn uses_proxy(s: &Obj) -> bool { s.s("tunnelMode") != "tun" }
+/// "auto" (both families), "v4" (IPv4 only) or "v6" (prefer IPv6).
+pub fn ip_mode(s: &Obj) -> String { let m = s.s("ipMode"); if m.is_empty() { if s.b("ipv6", true) { "auto".into() } else { "v4".into() } } else { m } }

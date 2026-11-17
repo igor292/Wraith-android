@@ -81,6 +81,31 @@ pub fn segmented(ui: &mut Ui, p: &Palette, value: &mut String, options: &[(&str,
     changed
 }
 
+/// Segmented look, but every segment toggles on its own (multi-select). Returns true when something changed.
+pub fn toggles(ui: &mut Ui, p: &Palette, values: &mut [bool], labels: &[&str], width: f32) -> bool {
+    let mut changed = false;
+    let h = 36.0; let each = width / labels.len() as f32;
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, h), Sense::hover());
+    ui.painter().rect(rect, CornerRadius::same(18), Color32::TRANSPARENT, Stroke::new(1.0, p.outline), egui::StrokeKind::Inside);
+    for (i, label) in labels.iter().enumerate() {
+        let r = Rect::from_min_size(egui::pos2(rect.left() + each * i as f32, rect.top()), Vec2::new(each, h));
+        let response = ui.interact(r, ui.id().with(("toggle", i, *label)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let last = i + 1 == labels.len();
+        let radius = CornerRadius { nw: if i == 0 { 18 } else { 0 }, sw: if i == 0 { 18 } else { 0 }, ne: if last { 18 } else { 0 }, se: if last { 18 } else { 0 } };
+        if values[i] { ui.painter().rect_filled(r.shrink(1.0), radius, p.secondary_container); }
+        else if response.hovered() { ui.painter().rect_filled(r.shrink(1.0), radius, p.text.gamma_multiply(0.06)); }
+        if i > 0 { ui.painter().vline(r.left(), r.y_range(), Stroke::new(1.0, p.outline)); }
+        let fg = if values[i] { p.on_secondary_container } else { p.text };
+        let galley = ui.painter().layout_no_wrap(label.to_string(), FontId::new(13.5, semibold()), fg);
+        let icon_w = if values[i] { 18.0 } else { 0.0 };
+        let start = r.center().x - (galley.size().x + icon_w) / 2.0;
+        if values[i] { ui.painter().text(egui::pos2(start + 7.0, r.center().y), Align2::CENTER_CENTER, super::theme::icon::CHECK, FontId::new(12.0, icons()), fg); }
+        ui.painter().galley(egui::pos2(start + icon_w, r.center().y - galley.size().y / 2.0), galley, fg);
+        if response.clicked() { values[i] = !values[i]; changed = true; }
+    }
+    changed
+}
+
 pub fn chip(ui: &mut Ui, p: &Palette, text: &str, fill: Color32, fg: Color32) -> Response {
     let galley = ui.painter().layout_no_wrap(text.to_string(), FontId::new(12.5, semibold()), fg);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(galley.size().x + 20.0, 26.0), Sense::hover());

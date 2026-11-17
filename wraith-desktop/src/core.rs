@@ -33,6 +33,11 @@ struct Running { child: Arc<Mutex<Child>>, config: PathBuf, proxy_mode: bool, st
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
 static SESSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static CONNECT: Mutex<()> = Mutex::new(());
+/// Last profile started and how many automatic restarts it already had.
+static LAST: Mutex<Option<Profile>> = Mutex::new(None);
+static RETRIES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Last meaningful line the core printed (shown when it dies).
+static LAST_LINE: Mutex<String> = Mutex::new(String::new());
 
 pub fn xray_exe() -> PathBuf { util::app_dir().join("xray.exe") }
 pub fn singbox_exe() -> PathBuf { util::app_dir().join("sing-box.exe") }
@@ -43,14 +48,20 @@ pub fn recover() {
     kill_orphans();
 }
 
-pub fn connect(profile: Profile) {
+pub fn connect(profile: Profile) { RETRIES.store(0, std::sync::atomic::Ordering::SeqCst); start_connect(profile); }
+fn start_connect(profile: Profile) {
+    *LAST.lock().unwrap() = Some(profile.clone());
+    LAST_LINE.lock().unwrap().clear();
+    let preferred = crate::store::get().settings.s_or("core", "xray");
+    let profile = crate::importer::for_engine(&profile, &preferred);
+    if (preferred == "singbox") != profile.is_singbox() { crate::log::add(format!("«{}» запускается через {}: другое ядро не поддерживает эту конфигурацию.", profile.name, if profile.is_singbox() { "sing-box" } else { "Xray" })); }
     std::thread::spawn(move || {
         let _serial = CONNECT.lock().unwrap();
         stop_running(false);
         let session = SESSION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         {
             let mut s = STATUS.lock().unwrap();
-            *s = Status { state: State::Connecting, error: String::new(), profile_id: profile.id.clone(), profile_name: profile.name.clone(), engine: if profile.is_singbox() { "sing-box" } else { "Xray" }, tun: crate::store::get().s("tunnelMode") == "tun", since: None, rx: 0, tx: 0, rx_rate: 0, tx_rate: 0 };
+            *s = Status { state: State::Connecting, error: String::new(), profile_id: profile.id.clone(), profile_name: profile.name.clone(), engine: if profile.is_singbox() { "sing-box" } else { "Xray" }, tun: crate::model::uses_tun(&crate::store::get().settings), since: None, rx: 0, tx: 0, rx_rate: 0, tx_rate: 0 };
         }
         match start(&profile, session) {
             Ok(()) => { let mut s = STATUS.lock().unwrap(); s.state = State::Connected; s.since = Some(Instant::now()); }
@@ -73,7 +84,7 @@ pub fn shutdown() { stop_running(true); }
 fn start(profile: &Profile, session: u64) -> Result<(), String> {
     let state = crate::store::get().clone();
     let settings = &state.settings;
-    let tun = settings.s_or("tunnelMode", "proxy") == "tun";
+    let tun = crate::model::uses_tun(settings); let system_proxy = crate::model::uses_proxy(settings);
     if tun && !util::is_admin() { return Err("Для режима TUN нужны права администратора.".into()); }
     let singbox = profile.is_singbox();
     // The system's resolvers are read before the tunnel exists.
@@ -84,20 +95,27 @@ fn start(profile: &Profile, session: u64) -> Result<(), String> {
     let exe = if singbox { singbox_exe() } else { xray_exe() };
     if !exe.exists() { return Err(format!("Не найден {} рядом с Wraith.exe. Распакуйте архив целиком.", exe.file_name().unwrap().to_string_lossy())); }
     if tun && !util::app_dir().join("wintun.dll").exists() { return Err("Для TUN нужен wintun.dll рядом с Wraith.exe.".into()); }
-    let path = crate::store::folder().join("active-config.json");
-    std::fs::write(&path, serde_json::to_vec(&config).unwrap()).map_err(|e| e.to_string())?;
+    // Xray reads its config from stdin: no file another program could swap while the core starts
+    // (Wraith may run as administrator). sing-box has no stdin option; its file lives in a folder
+    // only administrators can write when Wraith is installed.
+    let bytes = serde_json::to_vec(&config).unwrap();
+    let path = util::runtime_dir().join("active-config.json");
     let p = path.to_string_lossy().to_string();
-    let check = if singbox { util::run_hidden(&exe, &["check", "-c", &p], 20) } else { util::run_hidden(&exe, &["run", "-test", "-c", &p], 20) };
+    let check = if singbox {
+        std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+        util::run_hidden(&exe, &["check", "-c", &p], 20)
+    } else { util::run_hidden_stdin(&exe, &["run", "-test", "-c", "stdin:"], &bytes, 20) };
     if let Err(out) = check { return Err(format!("{} отклонил конфигурацию: {}", if singbox { "sing-box" } else { "Xray" }, util::tail(&out, 600))); }
-    crate::log::add(format!("Wraith: запуск {} · {} · «{}»", if singbox { "sing-box" } else { "Xray" }, if tun { "TUN" } else { "системный прокси" }, profile.name));
+    crate::log::add(format!("Wraith: запуск {} · {} · «{}»", if singbox { "sing-box" } else { "Xray" }, if tun && system_proxy { "TUN + прокси" } else if tun { "TUN" } else { "системный прокси" }, profile.name));
     let mut cmd = util::hidden(&exe);
-    if singbox { cmd.args(["run", "-c", &p, "-D", &crate::store::folder().to_string_lossy()]); } else { cmd.args(["run", "-c", &p]); }
-    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).spawn().map_err(|e| format!("Не удалось запустить ядро: {e}"))?;
+    if singbox { cmd.args(["run", "-c", &p, "-D", &util::runtime_dir().to_string_lossy()]); } else { cmd.args(["run", "-c", "stdin:"]); }
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(if singbox { Stdio::null() } else { Stdio::piped() }).spawn().map_err(|e| format!("Не удалось запустить ядро: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() { use std::io::Write; stdin.write_all(&bytes).map_err(|e| e.to_string())?; }
     for stream in [child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>), child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>)].into_iter().flatten() {
-        std::thread::spawn(move || { for line in BufReader::new(stream).lines().map_while(Result::ok) { crate::log::add(line); } });
+        std::thread::spawn(move || { for line in BufReader::new(stream).lines().map_while(Result::ok) { if !line.contains(" accepted ") && !line.trim().is_empty() { *LAST_LINE.lock().unwrap() = line.clone(); } crate::log::add(line); } });
     }
     let child = Arc::new(Mutex::new(child));
-    *RUNNING.lock().unwrap() = Some(Running { child: child.clone(), config: path, proxy_mode: !tun, stats_port, secret, tags, singbox });
+    *RUNNING.lock().unwrap() = Some(Running { child: child.clone(), config: path, proxy_mode: system_proxy, stats_port, secret, tags, singbox });
     // Wait for the local inlet: it proves the core finished starting (TUN comes up first).
     let port = settings.i("httpProxyPort", 2082) as u16;
     let deadline = Instant::now() + Duration::from_secs(if tun { 12 } else { 6 });
@@ -107,7 +125,7 @@ fn start(profile: &Profile, session: u64) -> Result<(), String> {
         if Instant::now() > deadline { return Err(format!("Ядро не открыло локальный порт {port}. Возможно, он занят другой программой.")); }
         std::thread::sleep(Duration::from_millis(80));
     }
-    if !tun { proxy::enable(&format!("127.0.0.1:{port}"))?; }
+    if system_proxy { proxy::enable(&format!("127.0.0.1:{port}"))?; }
     // Watchdog and traffic counters for this session.
     std::thread::spawn(move || monitor(session));
     crate::log::add("Wraith: подключено");
@@ -129,7 +147,12 @@ fn monitor(session: u64) {
             if SESSION.load(std::sync::atomic::Ordering::SeqCst) != session { return; }
             crate::log::add(format!("Ядро неожиданно остановилось ({code})."));
             stop_running(true);
-            set_state(State::Off, Some("Ядро остановилось. Подробности — в журнале.".into()));
+            // A crash of the core (driver hiccup, network change) gets two automatic restarts.
+            let retries = RETRIES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let last = LAST.lock().unwrap().clone();
+            if retries < 2 { if let Some(p) = last { crate::log::add("Перезапускаем ядро…"); drop(_serial); start_connect(p); return; } }
+            let line = crate::util::tail(&LAST_LINE.lock().unwrap(), 200);
+            set_state(State::Off, Some(if line.is_empty() { "Ядро остановилось. Подробности — в журнале.".into() } else { format!("Ядро остановилось: {}", crate::log::safe(line)) }));
             return;
         }
         if let Some((down, up)) = read_stats(port, &secret, &tags, singbox) {

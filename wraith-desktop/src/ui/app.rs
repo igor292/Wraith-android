@@ -64,7 +64,7 @@ impl App {
         let (update_on_open, check_updates, connect_on_start) = { let s = store::get(); (s.b("updateOnOpen"), s.b("checkUpdates"), s.b("connectOnStart")) };
         if update_on_open { app.background("Обновляем подписки…", || { crate::subs::update_all(true); Ok("Подписки обновлены".into()) }); }
         if check_updates { let shared = app.shared.clone(); std::thread::spawn(move || if let Ok(r) = updater::check() { if r.available { shared.lock().unwrap().release = Some(r); super::repaint(); } }); }
-        if connect || connect_on_start { if let Some(p) = store::get().selected().cloned() { core::connect(p); } }
+        if connect || connect_on_start { let selected = store::get().selected().cloned(); if let Some(p) = selected { core::connect(p); } }
         app
     }
 
@@ -101,7 +101,11 @@ impl App {
     }
     fn connect_selected(&mut self) {
         let Some(p) = store::get().selected().cloned() else { self.toast("Сначала добавьте и выберите сервер"); return };
-        if store::get().s("tunnelMode") == "tun" && !util::is_admin() { self.modal = Some(Modal::Admin); return; }
+        let preferred = store::get().settings.s_or("core", "xray");
+        if (preferred == "singbox") != crate::importer::for_engine(&p, &preferred).is_singbox() {
+            self.toast(if preferred == "singbox" { "Этот сервер работает только на Xray — sing-box такую конфигурацию не поддерживает" } else { "Этот сервер работает только на sing-box" });
+        }
+        if crate::model::uses_tun(&store::get().settings) && !util::is_admin() { self.modal = Some(Modal::Admin); return; }
         core::connect(p);
     }
     fn select(&mut self, id: &str, connect_now: bool) {
@@ -150,6 +154,7 @@ impl App {
 
     fn show_config(&mut self, p: &Profile) {
         let state = store::get().clone();
+        let p = &crate::importer::for_engine(p, &state.settings.s_or("core", "xray"));
         let dns = crate::routing::system_resolvers();
         let result = if p.is_singbox() { crate::singbox::build(&state, p, &dns, 0, "••••") } else { crate::xray::build(&state, p, &dns, 0).map(|b| b.config) };
         self.modal = Some(match result {
@@ -242,7 +247,7 @@ impl App {
                             });
                         }
                     });
-                    ui.label(RichText::new(format!("{} · {} · всего ↓ {} ↑ {}", st.engine, if st.tun { "TUN" } else { "системный прокси" }, util::bytes(st.rx), util::bytes(st.tx))).size(12.0).color(p.muted));
+                    ui.label(RichText::new(format!("{} · {} · всего ↓ {} ↑ {}", st.engine, match store::get().s("tunnelMode").as_str() { "both" => "TUN + прокси", "tun" => "TUN", _ => "системный прокси" }, util::bytes(st.rx), util::bytes(st.tx))).size(12.0).color(p.muted));
                 }
                 if st.state == State::Off && !st.error.is_empty() {
                     ui.add_space(10.0);
@@ -253,22 +258,25 @@ impl App {
                 }
                 ui.add_space(16.0);
             });
-            let mut mode = store::get().s("tunnelMode");
-            ui.label(RichText::new("Режим").size(12.5).color(p.muted));
-            if w::segmented(ui, &p, &mut mode, &[("proxy", "Системный прокси"), ("tun", "TUN")], ui.available_width()) {
-                store::update(|s| s.set("tunnelMode", mode.clone().into()));
-                if st.state == State::Connected { self.connect_selected(); }
+            // System proxy and TUN are independent; at least one stays on.
+            let mode = store::get().s("tunnelMode");
+            let mut flags = [mode != "tun", mode == "tun" || mode == "both"];
+            ui.label(RichText::new("Подключение").size(12.5).color(p.muted));
+            if w::toggles(ui, &p, &mut flags, &["Системный прокси", "TUN"], ui.available_width()) {
+                if !flags[0] && !flags[1] { self.toast("Нужен хотя бы один режим"); }
+                else {
+                    let next = match flags { [true, true] => "both", [true, false] => "proxy", _ => "tun" };
+                    store::update(|s| s.set("tunnelMode", next.into()));
+                    if st.state == State::Connected { self.connect_selected(); }
+                }
             }
             ui.add_space(10.0);
-            let mut routing = store::get().s("mode");
-            ui.label(RichText::new("Маршрутизация").size(12.5).color(p.muted));
-            if w::segmented(ui, &p, &mut routing, &[("rules", "По правилам"), ("global", "Всё через VPN"), ("direct", "Напрямую")], ui.available_width()) {
-                store::update(|s| s.set("mode", routing.clone().into()));
+            let mut engine = store::get().settings.s_or("core", "xray");
+            ui.label(RichText::new("Ядро").size(12.5).color(p.muted));
+            if w::segmented(ui, &p, &mut engine, &[("xray", "Xray"), ("singbox", "sing-box")], ui.available_width()) {
+                store::update(|s| s.set("core", engine.clone().into()));
                 if st.state == State::Connected { self.connect_selected(); }
             }
-            ui.add_space(4.0);
-            let hint = if mode == "tun" { "TUN заворачивает весь трафик компьютера, нужны права администратора." } else { "Системный прокси: браузеры и большинство программ, без прав администратора." };
-            ui.label(RichText::new(hint).size(12.0).color(p.muted));
         });
     }
 
@@ -370,7 +378,10 @@ impl App {
             ui.horizontal(|ui| {
                 let chevron = if sub.collapsed { icon::RIGHT } else { icon::DOWN };
                 if w::icon_button(ui, &p, chevron, "", false).clicked() { let id = sub.id.clone(); store::update(|s| if let Some(x) = s.subscriptions.iter_mut().find(|x| x.id == id) { x.collapsed = !x.collapsed; }); }
+                // The text column takes all the width the three buttons leave, so the usage bar spans the card.
+                let column = (ui.available_width() - 3.0 * 40.0 - 3.0 * 8.0 - 12.0).max(160.0);
                 ui.vertical(|ui| {
+                    ui.set_width(column);
                     ui.label(RichText::new(&sub.name).font(FontId::new(15.0, semibold())));
                     let (used, total, expire) = sub.usage();
                     let mut info = vec![format!("{count} {}", util::plural(count as i64, "сервер", "сервера", "серверов"))];
@@ -379,10 +390,12 @@ impl App {
                     if sub.updated > 0 { let mins = (util::unix_now() - sub.updated) / 60; info.push(if mins < 1 { "обновлено сейчас".into() } else if mins < 60 { format!("обновлено {mins} мин назад") } else if mins < 1440 { format!("обновлено {} ч назад", mins / 60) } else { format!("обновлено {} дн. назад", mins / 1440) }); }
                     ui.label(RichText::new(info.join(" · ")).size(12.5).color(p.muted));
                     if total > 0 {
-                        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width().min(260.0), 4.0), Sense::hover());
-                        ui.painter().rect_filled(rect, CornerRadius::same(2), p.highest);
+                        ui.add_space(2.0);
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 6.0), Sense::hover());
+                        ui.painter().rect_filled(rect, CornerRadius::same(3), p.highest);
                         let frac = (used as f32 / total as f32).clamp(0.0, 1.0);
-                        ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, Vec2::new(rect.width() * frac, 4.0)), CornerRadius::same(2), if frac > 0.9 { p.error } else { p.primary });
+                        ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, Vec2::new((rect.width() * frac).max(6.0), 6.0)), CornerRadius::same(3), if frac > 0.9 { p.error } else { p.primary });
+                        ui.add_space(2.0);
                     }
                     for text in [&sub.announce, &sub.info_text] { if !text.is_empty() { ui.label(RichText::new(text.as_str()).size(12.5).color(p.text)); } }
                     if !sub.error.is_empty() { ui.label(RichText::new(&sub.error).size(12.5).color(p.error)); }
@@ -390,6 +403,14 @@ impl App {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let menu = w::icon_button(ui, &p, icon::MORE, "Подписка", false);
                     let id = sub.id.clone(); let s2 = sub.clone();
+                    let busy = self.shared.lock().unwrap().busy.is_some();
+                    let pinging = { let s = self.shared.lock().unwrap(); self.profiles.iter().any(|x| x.group == id && s.pinging.contains(&x.id)) };
+                    if w::icon_button(ui, &p, if pinging { icon::CLOSE } else { icon::PULSE }, if pinging { "Остановить проверку" } else { "Проверить задержку серверов подписки" }, pinging).clicked() {
+                        if pinging { self.ping(None); } else { let ids = self.profiles.iter().filter(|x| x.group == id).map(|x| x.id.clone()).collect(); self.ping(Some(ids)); }
+                    }
+                    if w::icon_button(ui, &p, icon::REFRESH, "Обновить подписку", false).clicked() && !busy {
+                        let s3 = s2.clone(); self.background("Обновляем подписку…", move || { crate::subs::update(s3)?; Ok("Подписка обновлена".into()) });
+                    }
                     egui::Popup::menu(&menu).show(|ui| {
                         ui.set_min_width(220.0);
                         if ui.button("Обновить").clicked() { let s3 = s2.clone(); self.background("Обновляем подписку…", move || { crate::subs::update(s3)?; Ok("Подписка обновлена".into()) }); }
@@ -461,11 +482,11 @@ impl App {
                     ui.label(RichText::new("Настройки").font(FontId::new(26.0, semibold())));
                     w::section_title(ui, &p, "Подключение");
                     w::group(ui, &p, |ui| {
-                        self.pick_row(ui, "Режим", "Системный прокси — без прав администратора; TUN — весь трафик компьютера.", "tunnelMode", &[("proxy", "Системный прокси"), ("tun", "TUN")]);
+                        self.pick_row(ui, "Режим", "Системный прокси — без прав администратора; TUN — весь трафик компьютера.", "tunnelMode", &[("both", "Прокси + TUN"), ("proxy", "Системный прокси"), ("tun", "Только TUN")]);
                         self.pick_row(ui, "Маршрутизация", "", "mode", &[("rules", "По правилам"), ("global", "Всё через VPN"), ("direct", "Всё напрямую")]);
                         self.bool_row(ui, "Быстрый сервер автоматически", "Для конфигураций с несколькими серверами: Xray сам выбирает самый быстрый живой сервер.", "autoSelect");
                         self.bool_row(ui, "Не трогать локальную сеть", "Роутер, принтеры и локальные адреса — напрямую.", "bypassLan");
-                        self.bool_row(ui, "IPv6", "Выключите, если провайдер не поддерживает IPv6.", "ipv6");
+                        self.ip_row(ui);
                         self.bool_row(ui, "Определять домены (sniffing)", "Нужно для правил по доменам при подключении по IP.", "sniff");
                         self.value_row(ui, "MTU туннеля", "Только для TUN. Обычно 1500.", "mtu", true);
                     });
@@ -504,6 +525,7 @@ impl App {
                     w::section_title(ui, &p, "Проверка задержки");
                     w::group(ui, &p, |ui| {
                         self.pick_row(ui, "Способ", "Через прокси — честная проверка: запрос идёт через сам сервер.", "pingType", &[("proxyGet", "Через прокси (GET)"), ("proxyHead", "Через прокси (HEAD)"), ("tcp", "TCP-подключение"), ("icmp", "ICMP ping")]);
+                        if store::get().s("pingType").starts_with("proxy") { self.pick_row(ui, "Соединение при проверке", "Keep-alive: второй запрос идёт по уже открытому соединению — показывает задержку без рукопожатия. Два соединения: каждый запрос с нуля.", "pingMode", &[("keepalive", "Keep-alive"), ("double", "Два новых соединения")]); }
                         self.value_row(ui, "Адрес проверки", "", "pingUrl", false);
                         self.pick_row(ui, "Тайм-аут", "", "pingTimeout", &[("3000", "3 секунды"), ("5000", "5 секунд"), ("10000", "10 секунд")]);
                         self.pick_row(ui, "Сортировка серверов", "", "sort", &[("none", "Как у провайдера"), ("ping", "По задержке"), ("name", "По имени")]);
@@ -518,7 +540,7 @@ impl App {
                     w::group(ui, &p, |ui| {
                         self.pick_row(ui, "Тема", "", "theme", &[("system", "Как в Windows"), ("light", "Светлая"), ("dark", "Тёмная")]);
                         let mut autostart = store::get().b("autostart");
-                        if w::switch_row(ui, &p, "Запускать вместе с Windows", "Wraith стартует свёрнутым в трей.", &mut autostart) { store::update(|s| s.set("autostart", autostart.into())); super::set_autostart(autostart); }
+                        if w::switch_row(ui, &p, "Запускать вместе с Windows", "Wraith стартует свёрнутым в трей.", &mut autostart) { match crate::install::set_autostart(autostart) { Ok(()) => store::update(|s| s.set("autostart", autostart.into())), Err(e) => self.toast(e) } }
                         self.bool_row(ui, "Подключаться при запуске", "К выбранному серверу.", "connectOnStart");
                         self.bool_row(ui, "Сворачивать в трей при закрытии", "Крестик прячет окно, VPN продолжает работать.", "minimizeToTray");
                         self.bool_row(ui, "Проверять обновления", "Только запрос к GitHub Releases, без данных об устройстве.", "checkUpdates");
@@ -544,6 +566,11 @@ impl App {
         });
     }
 
+    fn ip_row(&mut self, ui: &mut Ui) {
+        let p = self.pal; let mut v = crate::model::ip_mode(&store::get().settings); let mut changed = false;
+        w::row(ui, &p, "IP-адреса", "Авто — IPv4 и IPv6; IPv4 — если сеть или провайдер без IPv6; IPv6 — только IPv6.", |ui| changed = w::segmented(ui, &p, &mut v, &[("auto", "Авто"), ("v4", "IPv4"), ("v6", "IPv6")], 228.0));
+        if changed { store::update(|s| s.set("ipMode", v.clone().into())); self.after_change("ipMode"); }
+    }
     fn bool_row(&mut self, ui: &mut Ui, title: &str, subtitle: &str, key: &str) {
         let mut v = store::get().b(key);
         if w::switch_row(ui, &self.pal, title, subtitle, &mut v) { let k = key.to_string(); store::update(|s| s.set(&k, v.into())); self.after_change(key); }
@@ -567,7 +594,7 @@ impl App {
         if open { self.modal = Some(Modal::Value { key: key.into(), title: title.into(), hint: subtitle.into(), value: v, numeric }); }
     }
     fn after_change(&mut self, key: &str) {
-        let tunnel = ["tunnelMode", "mode", "autoSelect", "bypassLan", "ipv6", "sniff", "mtu", "dnsFromJson", "customDns", "tunnelDns", "proxyPort", "httpProxyPort", "allowLan", "proxyPassword", "fragment", "fragmentPackets", "fragmentLength", "fragmentInterval", "noise", "noiseType", "noisePacket", "noiseRand", "noiseDelay", "mux", "muxConnections", "debugLogs"];
+        let tunnel = ["tunnelMode", "mode", "autoSelect", "bypassLan", "ipMode", "sniff", "mtu", "dnsFromJson", "customDns", "tunnelDns", "proxyPort", "httpProxyPort", "allowLan", "proxyPassword", "fragment", "fragmentPackets", "fragmentLength", "fragmentInterval", "noise", "noiseType", "noisePacket", "noiseRand", "noiseDelay", "mux", "muxConnections", "debugLogs"];
         if tunnel.contains(&key) && core::status().state == State::Connected { self.toast("Переподключаемся с новыми настройками…"); self.connect_selected(); }
         self.revision = u64::MAX;
     }
@@ -659,7 +686,7 @@ impl App {
                             match action {
                                 Confirmed::DeleteProfile(id) => { let id = id.clone(); store::update(|s| { s.profiles.retain(|x| x.id != id); if s.selected == id { s.selected = s.profiles.first().map(|x| x.id.clone()).unwrap_or_default(); } }); }
                                 Confirmed::DeleteSubscription(id) => { let id = id.clone(); store::update(|s| { s.subscriptions.retain(|x| x.id != id); s.profiles.retain(|x| x.group != id); if s.selected().is_none() { s.selected = s.profiles.first().map(|x| x.id.clone()).unwrap_or_default(); } }); }
-                                Confirmed::Reset => { store::update(|s| { let keep = (s.s("hwid"), s.s("clientNumericId")); s.settings = crate::model::defaults(); s.set("hwid", keep.0.into()); s.set("clientNumericId", keep.1.into()); }); super::set_autostart(false); }
+                                Confirmed::Reset => { store::update(|s| { let keep = (s.s("hwid"), s.s("clientNumericId")); s.settings = crate::model::defaults(); s.set("hwid", keep.0.into()); s.set("clientNumericId", keep.1.into()); }); let _ = crate::install::set_autostart(false); }
                             }
                         }
                         if w::button(ui, &p, Kind::Text, None, "Отмена").clicked() { keep = false; }

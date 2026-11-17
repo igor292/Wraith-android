@@ -22,6 +22,10 @@ regex = "1"
 idna = "1"
 getrandom = "0.2"
 url = "2"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "0.26"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 winreg = "0.55"
 tray-icon = "0.21"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_Networking_WinInet", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_NetworkManagement_Ndis", "Win32_Graphics_Dwm", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_SystemInformation", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_Input_KeyboardAndMouse"] }
@@ -35,3 +39,7 @@ lto = "thin"
 codegen-units = 4
 strip = true
 panic = "unwind"
+
+[features]
+# Builds Wraith-Setup.exe: the app plus the release archive it installs (path in WRAITH_PAYLOAD).
+setup = []

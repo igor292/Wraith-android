@@ -52,11 +52,15 @@ It has two modes. **System proxy** needs no admin rights. **TUN** captures all t
 <img src="docs/screens/windows-settings-dark.png" width="400">
 </p>
 
+Install: download `Wraith-Setup-*.exe` from the Windows release. It installs into `Program Files`, where only administrators can write. A Task Scheduler task with highest privileges starts Wraith elevated without a UAC prompt each time (TUN needs it), and the same mechanism handles autostart. Uninstall from Settings → Apps. The portable zip works too.
+
 Build: `cd wraith-desktop && cargo build --release`. This needs Rust stable with the MSVC toolchain. Put the following next to `Wraith.exe`:
 
 - `xray.exe`, `geoip.dat` and `geosite.dat` from the [Xray-core release](https://github.com/XTLS/Xray-core/releases);
 - `sing-box.exe`, built from `third_party/wraith-core`;
 - `wintun.dll`.
+
+The installer is the same program built with `--features setup`, with the release zip embedded through the `WRAITH_PAYLOAD` environment variable.
 
 Tests: `cargo test`. They validate the generated configs with the real cores when those cores are present. `cargo test -- --ignored` adds end-to-end checks through a local Xray server.
 

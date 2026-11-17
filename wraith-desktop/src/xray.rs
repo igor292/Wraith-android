@@ -38,7 +38,7 @@ pub fn source(p: &Profile) -> Result<Obj, String> {
 
 pub fn build(state: &AppState, profile: &Profile, system_dns: &[String], metrics_port: u16) -> Result<Built, String> {
     let settings = &state.settings;
-    let tun = settings.s_or("tunnelMode", "proxy") == "tun";
+    let tun = crate::model::uses_tun(settings);
     let mut root = prepare(profile, settings, &source(profile)?, None, false)?;
 
     // A provider "api" block opens its own gRPC listener that can add or remove outbounds; Wraith owns every entry point.
@@ -151,6 +151,14 @@ pub fn prepare(profile: &Profile, settings: &Obj, source: &Obj, expected: Option
             }
         }
     }
+    // Xray 26 refuses to start on the removed "allowInsecure"; drop it so the rest of the document still runs.
+    if let Some(outbounds) = root.get_mut("outbounds").and_then(|v| v.as_array_mut()) {
+        for outbound in objects_mut(outbounds) {
+            if let Some(tls) = outbound.get_mut("streamSettings").and_then(|s| s.get_mut("tlsSettings")).and_then(|t| t.as_object_mut()) {
+                if tls.remove("allowInsecure").is_some() { crate::log::add(format!("{}: allowInsecure удалён (Xray 26 его не поддерживает), сертификат будет проверяться.", outbound_tag_hint(tls))); }
+            }
+        }
+    }
     // DPI options apply to every server the core may pick.
     let candidates = proxy_tags(&root);
     if pin { outbound_options(&mut root, settings, &tag)?; } else { for c in &candidates { outbound_options(&mut root, settings, c)?; } }
@@ -243,7 +251,7 @@ pub fn inbounds(s: &Obj, tun: bool) -> Result<Vec<Value>, String> {
     let mut list = vec![];
     if tun {
         let mtu = s.i("mtu", 1500); if !(1280..=9000).contains(&mtu) { return Err("MTU должен быть от 1280 до 9000.".into()); }
-        let mut routes = vec!["0.0.0.0/0"]; if s.b("ipv6", true) { routes.push("::/0"); }
+        let mut routes = vec!["0.0.0.0/0"]; if crate::model::ip_mode(s) != "v4" { routes.push("::/0"); }
         list.push(json!({"tag": "tun-in", "protocol": "tun",
             "settings": {"name": "Wraith", "MTU": mtu, "autoSystemRoutingTable": routes, "autoOutboundsInterface": "auto"},
             "sniffing": {"enabled": s.b("sniff", true), "routeOnly": true, "destOverride": ["http", "tls", "quic"]}}));
@@ -300,7 +308,7 @@ fn dns(state: &AppState, p: &Profile, system_dns: &[String]) -> Obj {
     if value.is_empty() { value = routing::custom_dns(s); }
     let mut servers: Vec<Value> = if !value.is_empty() { vec![value.into()] } else { system_dns.iter().map(|ip| ip.clone().into()).collect() };
     if servers.is_empty() { servers.push(routing::DEFAULT_CUSTOM.into()); }
-    obj! {"servers" => servers, "queryStrategy" => if s.b("ipv6", true) { "UseIP" } else { "UseIPv4" }}
+    obj! {"servers" => servers, "queryStrategy" => match crate::model::ip_mode(s).as_str() { "v4" => "UseIPv4", "v6" => "UseIPv6", _ => "UseIP" }}
 }
 
 fn append_rules(out: &mut Vec<Value>, source: &[Obj], tags: &[String; 3]) {
@@ -449,3 +457,4 @@ pub fn probe_dns(dns: Option<&Obj>) -> Option<Obj> {
     }
     Some(out)
 }
+fn outbound_tag_hint(tls: &Obj) -> String { let n = tls.s("serverName"); if n.is_empty() { "Сервер".into() } else { n } }

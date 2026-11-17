@@ -7,11 +7,14 @@ use crate::routing;
 use serde_json::{json, Value};
 
 pub fn build(state: &AppState, p: &Profile, system_dns: &[String], api_port: u16, api_secret: &str) -> Result<Obj, String> {
-    let s = &state.settings; let tun = s.s_or("tunnelMode", "proxy") == "tun";
+    let s = &state.settings; let tun = crate::model::uses_tun(s);
     let mut config;
     if p.full {
         config = p.singbox.clone().ok_or("Нет конфигурации sing-box.")?;
         normalize_legacy_dns(&mut config);
+        // Wraith may run as administrator: no extra listening services, and no endpoints that keep state on disk.
+        config.remove("services");
+        if let Some(eps) = config.get_mut("endpoints").and_then(|v| v.as_array_mut()) { eps.retain(|e| e.s("type") != "tailscale"); }
         config.insert("inbounds".into(), Value::Array(inbounds(s, tun)?));
         let first = config.objects("outbounds").first().map(|o| o.s("tag")).unwrap_or_default();
         let route = child(&mut config, "route");
@@ -62,7 +65,7 @@ pub fn build_probe(state: &AppState, p: &Profile, port: u16) -> Result<Obj, Stri
 fn inbounds(s: &Obj, tun: bool) -> Result<Vec<Value>, String> {
     let mut list = vec![];
     if tun {
-        let mut address = vec!["172.19.0.1/30"]; if s.b("ipv6", true) { address.push("fdfe:dcba:9876::1/126"); }
+        let mut address = vec!["172.19.0.1/30"]; if crate::model::ip_mode(s) != "v4" { address.push("fdfe:dcba:9876::1/126"); }
         list.push(json!({"type": "tun", "tag": "tun-in", "interface_name": "Wraith", "address": address, "mtu": s.i("mtu", 1500), "auto_route": true, "strict_route": true, "stack": "mixed"}));
     }
     let lan = s.b("allowLan", false);
@@ -83,7 +86,7 @@ fn dns(state: &AppState, p: &Profile, system_dns: &[String]) -> Obj {
     let remote = if !value.is_empty() { server(&value, "remote", true) }
         else if let Some(ip) = system_dns.first() { obj! {"type" => "udp", "tag" => "remote", "server" => ip} }
         else { server(routing::DEFAULT_CUSTOM, "remote", true) };
-    obj! {"servers" => json!([{"type": "local", "tag": "local"}, remote]), "final" => "remote", "strategy" => if s.b("ipv6", true) { "prefer_ipv4" } else { "ipv4_only" }}
+    obj! {"servers" => json!([{"type": "local", "tag": "local"}, remote]), "final" => "remote", "strategy" => match crate::model::ip_mode(s).as_str() { "v4" => "ipv4_only", "v6" => "ipv6_only", _ => "prefer_ipv4" }}
 }
 fn server(address: &str, tag: &str, via_proxy: bool) -> Obj {
     let mut o = Obj::new();

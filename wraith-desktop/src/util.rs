@@ -129,3 +129,29 @@ pub fn clipboard_text() -> Option<String> {
         CloseClipboard(); result
     }
 }
+
+/// Installed by the setup into Program Files (marker written by the installer).
+pub fn installed() -> bool { app_dir().join("wraith.installed").exists() }
+
+/// Where runtime configs are written. When the installed Wraith runs as administrator this is a
+/// folder inside Program Files that ordinary programs cannot modify; otherwise the user data folder.
+pub fn runtime_dir() -> std::path::PathBuf {
+    let dir = if is_admin() && installed() { app_dir().join("runtime") } else { crate::store::folder() };
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Like run_hidden, with the input written to the child's stdin.
+pub fn run_hidden_stdin(exe: &std::path::Path, args: &[&str], input: &[u8], timeout_secs: u64) -> Result<String, String> {
+    use std::io::Write;
+    let mut child = hidden(exe).args(args).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+    if let Some(mut stdin) = child.stdin.take() { stdin.write_all(input).map_err(|e| e.to_string())?; }
+    let out = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let o2 = out.clone();
+    let handle = std::thread::spawn(move || { let r = child.wait_with_output(); *o2.lock().unwrap() = Some(r); });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    while !handle.is_finished() { if std::time::Instant::now() > deadline { return Err("Проверка конфигурации не завершилась вовремя.".into()); } std::thread::sleep(std::time::Duration::from_millis(30)); }
+    let result = out.lock().unwrap().take().ok_or("Нет ответа ядра")?.map_err(|e| e.to_string())?;
+    let text = format!("{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+    if result.status.success() { Ok(text) } else { Err(text) }
+}

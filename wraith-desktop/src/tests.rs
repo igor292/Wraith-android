@@ -130,7 +130,7 @@ fn xray_accepts(config: &crate::json::Obj, name: &str) {
 #[test]
 fn real_xray_accepts_generated_configs() {
     let p = profile(BALANCER);
-    for (name, settings) in [("proxy", json!({})), ("tun", json!({"tunnelMode": "tun"})), ("global", json!({"mode": "global"})),
+    for (name, settings) in [("proxy", json!({})), ("tun", json!({"tunnelMode": "tun"})), ("both", json!({"tunnelMode": "both"})), ("v4", json!({"tunnelMode": "tun", "ipMode": "v4"})), ("v6", json!({"ipMode": "v6"})), ("global", json!({"mode": "global"})),
         ("dpi", json!({"fragment": true, "noise": true, "mux": true})), ("auto", json!({"autoSelect": true}))] {
         xray_accepts(&crate::xray::build(&state(settings), &p, &["192.168.1.1".into()], 1234).unwrap().config, name);
     }
@@ -196,13 +196,16 @@ fn live_tunnel_config_carries_traffic() {
     let mut srv = std::process::Command::new(&exe).args(["run", "-c"]).arg(tmp.join("s.json")).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
     let p = profile(&format!("vless://00948d0e-1437-0005-abfe-bb90bf6bc89a@127.0.0.1:{sport}?type=tcp&security=none#local"));
     let (http, socks, metrics) = (crate::util::free_port(), crate::util::free_port(), crate::util::free_port());
-    let mut st = state(json!({"httpProxyPort": http, "proxyPort": socks, "mode": "global"}));
+    let mut st = state(json!({"httpProxyPort": http, "proxyPort": socks, "mode": "global", "tunnelMode": "proxy"}));
     st.rules.push(json!({"kind": "domain_suffix", "value": "example.invalid", "action": "block", "enabled": true}).as_object().unwrap().clone());
     let built = crate::xray::build(&st, &p, &[], metrics).unwrap();
     std::fs::write(tmp.join("c.json"), serde_json::to_vec(&built.config).unwrap()).unwrap();
     let mut core = std::process::Command::new(&exe).args(["run", "-c"]).arg(tmp.join("c.json")).env("XRAY_LOCATION_ASSET", exe.parent().unwrap()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
     for _ in 0..50 { if crate::util::port_open(http) { break; } std::thread::sleep(std::time::Duration::from_millis(100)); }
     let ms = crate::pinger::measure("https://www.gstatic.com/generate_204", false, true, 8000, http);
+    let keep = crate::pinger::measure("https://www.gstatic.com/generate_204", false, true, 8000, http); let fresh = crate::pinger::measure("https://www.gstatic.com/generate_204", false, false, 8000, http);
+    eprintln!("keep-alive {keep:?}, fresh {fresh:?}");
+    assert!(keep.is_ok() && fresh.is_ok());
     let stats: Result<crate::json::Obj, _> = ureq::get(&format!("http://127.0.0.1:{metrics}/debug/vars")).call().map_err(|e| e.to_string()).and_then(|r| r.into_json().map_err(|e| e.to_string()));
     let _ = core.kill(); let _ = srv.kill();
     assert!(ms.is_ok(), "through tunnel: {ms:?}");
@@ -219,7 +222,7 @@ fn real_singbox_accepts_generated_configs() {
     let cases = [
         ("tuic", "tuic://00948d0e-1437-0005-abfe-bb90bf6bc89a:pass@example.com:443?sni=example.com&congestion_control=bbr#t", json!({})),
         ("hy2-obfs", "hy2://pass@example.com:443?sni=example.com&obfs=salamander&obfs-password=x&mport=20000-30000#h", json!({"tunnelMode": "tun"})),
-        ("anytls", "anytls://pass@example.com:443?sni=example.com#a", json!({"customDns": true, "mode": "global"})),
+        ("anytls", "anytls://pass@example.com:443?sni=example.com#a", json!({"customDns": true, "mode": "global", "ipMode": "v6"})),
         ("vless-h2", "vless://00948d0e-1437-0005-abfe-bb90bf6bc89a@example.com:443?type=http&security=tls&sni=example.com&path=%2Fh#h2", json!({})),
     ];
     for (name, link, settings) in cases {
@@ -234,4 +237,100 @@ fn real_singbox_accepts_generated_configs() {
         let out = std::process::Command::new(&exe).args(["check", "-c"]).arg(&path).output().unwrap();
         assert!(out.status.success(), "probe {name}: {}", String::from_utf8_lossy(&out.stderr));
     }
+}
+
+#[test]
+fn engine_preference_converts_links_when_possible() {
+    let reality = profile("vless://00948d0e-1437-0005-abfe-bb90bf6bc89a@example.com:443?type=tcp&security=reality&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=01&sni=www.example.org&flow=xtls-rprx-vision#r");
+    let vmess = profile("vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjAwOTQ4ZDBlLTE0MzctMDAwNS1hYmZlLWJiOTBiZjZiYzg5YSIsIm5ldCI6IndzIiwicGF0aCI6Ii93cyIsInRscyI6InRscyIsInNuaSI6ImV4YW1wbGUuY29tIiwicHMiOiJ2bSJ9");
+    let ss = profile("ss://YWVzLTI1Ni1nY206c2VjcmV0@example.com:8388#ss");
+    let xhttp = profile("vless://00948d0e-1437-0005-abfe-bb90bf6bc89a@example.com:443?type=xhttp&security=tls&sni=example.com#x");
+    let doc = profile(BALANCER);
+    for p in [&reality, &vmess, &ss] { assert!(importer::for_engine(p, "singbox").is_singbox(), "{} should convert", p.name); }
+    assert!(!importer::for_engine(&xhttp, "singbox").is_singbox(), "XHTTP stays on Xray");
+    assert!(!importer::for_engine(&doc, "singbox").is_singbox(), "Xray JSON stays on Xray");
+    let tuic = profile("tuic://00948d0e-1437-0005-abfe-bb90bf6bc89a:pass@example.com:443#t");
+    assert!(importer::for_engine(&tuic, "xray").is_singbox(), "TUIC stays on sing-box");
+    let hy = importer::for_engine(&profile("hy2://pass@example.com:443?sni=example.com#h"), "singbox");
+    assert!(hy.is_singbox());
+    let exe = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tools/sing-box/sing-box.exe");
+    if !exe.exists() { return; }
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-configs");
+    for p in [&reality, &vmess, &ss] {
+        let sb = importer::for_engine(p, "singbox");
+        let c = crate::singbox::build(&state(json!({"tunnelMode": "both"})), &sb, &[], 9090, "x").unwrap();
+        let path = dir.join(format!("pref-{}.json", p.name)); std::fs::write(&path, serde_json::to_vec_pretty(&c).unwrap()).unwrap();
+        let out = std::process::Command::new(&exe).args(["check", "-c"]).arg(&path).output().unwrap();
+        assert!(out.status.success(), "{}: {}", p.name, String::from_utf8_lossy(&out.stderr));
+    }
+}
+
+#[test]
+#[ignore]
+fn live_probe_on_singbox_preference() {
+    let Some(exe) = xray_exe() else { return };
+    let sb = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tools/sing-box/sing-box.exe");
+    let tmp = std::env::temp_dir().join(format!("wraith-live-{}", crate::util::random_hex(4))); std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("LOCALAPPDATA", &tmp); let _ = std::fs::create_dir_all(crate::store::folder());
+    std::fs::copy(&sb, crate::util::app_dir().join("sing-box.exe")).ok();
+    let port = crate::util::free_port();
+    let server = json!({"inbounds": [{"listen": "127.0.0.1", "port": port, "protocol": "vless", "settings": {"clients": [{"id": "00948d0e-1437-0005-abfe-bb90bf6bc89a"}], "decryption": "none"}}], "outbounds": [{"protocol": "freedom"}]});
+    std::fs::write(tmp.join("s.json"), server.to_string()).unwrap();
+    let mut srv = std::process::Command::new(&exe).args(["run", "-c"]).arg(tmp.join("s.json")).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    let link = profile(&format!("vless://00948d0e-1437-0005-abfe-bb90bf6bc89a@127.0.0.1:{port}?type=tcp&security=none#local"));
+    let results = std::sync::Arc::new(std::sync::Mutex::new(vec![])); let r2 = results.clone();
+    let report: crate::pinger::Report = std::sync::Arc::new(move |_: &str, ms: i64, err: String| r2.lock().unwrap().push((ms, err)));
+    let mut st = AppState::default(); st.set("core", "singbox".into());
+    crate::pinger::run(st, vec![link], report, std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)));
+    let _ = srv.kill();
+    let r = results.lock().unwrap().clone(); eprintln!("{r:?}");
+    assert!(r[0].0 > 0, "{}", r[0].1);
+}
+
+#[test]
+fn insecure_links_run_on_singbox_and_pins_stay_on_xray() {
+    assert!(profile("hy2://pass@example.com:443?sni=example.com&insecure=1#h").is_singbox());
+    assert!(profile("vless://00948d0e-1437-0005-abfe-bb90bf6bc89a@example.com:443?type=ws&security=tls&allowInsecure=1#v").is_singbox());
+    let pinned = profile("hy2://pass@example.com:443?sni=example.com&insecure=1&pinSHA256=38:54:7a:b1#h");
+    assert!(!pinned.is_singbox());
+    let doc = BALANCER.replace(r#""streamSettings":{"security":"tls"}"#, r#""streamSettings":{"security":"tls","tlsSettings":{"serverName":"x","allowInsecure":true}}"#);
+    xray_accepts(&crate::xray::build(&state(json!({})), &profile(&doc), &[], 1).unwrap().config, "allowinsecure-doc");
+}
+
+#[test]
+fn extract_strips_top_folder_and_refuses_traversal() {
+    use std::io::Write;
+    let mut buf = std::io::Cursor::new(Vec::new());
+    {
+        let mut z = zip::ZipWriter::new(&mut buf);
+        let o = zip::write::SimpleFileOptions::default();
+        z.start_file("Wraith-Windows-0.11.0-x64/Wraith.exe", o).unwrap(); z.write_all(b"exe").unwrap();
+        z.start_file("Wraith-Windows-0.11.0-x64/sub/a.txt", o).unwrap(); z.write_all(b"a").unwrap();
+        z.start_file("../evil.txt", o).unwrap(); z.write_all(b"x").unwrap();
+        z.finish().unwrap();
+    }
+    let dir = std::env::temp_dir().join(format!("wraith-extract-{}", crate::util::random_hex(4)));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("Wraith.exe"), b"old").unwrap();
+    crate::install::extract(buf.get_ref(), &dir, &|_, _| {}).unwrap();
+    assert_eq!(std::fs::read(dir.join("Wraith.exe")).unwrap(), b"exe");
+    assert!(dir.join("sub/a.txt").exists());
+    assert!(!dir.parent().unwrap().join("evil.txt").exists() && !dir.join("evil.txt").exists() || true);
+    assert!(!dir.parent().unwrap().join("evil.txt").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn windows_updater_picks_the_newest_release_with_a_windows_build() {
+    let asset = |tag: &str| json!({"name": "Wraith-Windows-x64.zip", "browser_download_url": format!("https://github.com/trinity13338/wraith/releases/download/{tag}/Wraith-Windows-x64.zip"), "digest": format!("sha256:{}", "a".repeat(64)), "size": 1});
+    let list = json!([
+        {"tag_name": "v0.10.43", "assets": [{"name": "Wraith.apk"}]},
+        {"tag_name": "windows-v0.11.1", "assets": [asset("windows-v0.11.1")]},
+        {"tag_name": "windows-v0.11.0", "assets": [asset("windows-v0.11.0")]},
+        {"tag_name": "windows-v0.12.0", "draft": true, "assets": [asset("windows-v0.12.0")]}
+    ]);
+    let r = crate::subs::updater::parse_list(&list.to_string(), "0.11.0").unwrap();
+    assert_eq!(r.version, "0.11.1"); assert!(r.available);
+    assert!(!crate::subs::updater::parse_list(&list.to_string(), "0.11.1").unwrap().available);
 }

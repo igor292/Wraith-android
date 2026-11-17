@@ -18,6 +18,9 @@ fn file() -> PathBuf { folder().join("wraith-state.dat") }
 pub fn init() {
     let _ = std::fs::create_dir_all(folder());
     let mut state = load();
+    if !state.settings.contains_key("ipMode") && state.settings.get("ipv6").and_then(|v| v.as_bool()) == Some(false) { state.set("ipMode", "v4".into()); }
+    // 0.11: system proxy and TUN together became the default mode.
+    if state.schema < 4 { if state.settings.s("tunnelMode") == "proxy" || state.settings.s("tunnelMode").is_empty() { state.set("tunnelMode", "both".into()); } state.schema = 4; }
     if state.settings.s("hwid").is_empty() { state.set("hwid", crate::util::uuid4().into()); }
     for (k, v) in crate::model::defaults() { state.settings.entry(k).or_insert(v); }
     let _ = STATE.set(Mutex::new(state));

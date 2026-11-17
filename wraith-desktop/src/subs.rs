@@ -132,7 +132,7 @@ fn download(start: &str, user_agent: &str) -> Result<(String, HashMap<String, St
 pub mod updater {
     use crate::json::Get;
     use sha2::Digest;
-    use std::io::{Read, Write};
+    use std::io::Read;
     use std::time::Duration;
 
     pub const REPO: &str = "trinity13338/wraith";
@@ -149,20 +149,32 @@ pub mod updater {
     }
 
     pub fn check() -> Result<Release, String> {
-        let url = format!("https://api.github.com/repos/{REPO}/releases/latest"); checked(&url)?;
+        // Android and Windows share the repository; the newest release that carries a Windows build counts.
+        let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=20"); checked(&url)?;
         let body = match agent().get(&url).set("Accept", "application/vnd.github+json").call() {
             Ok(r) => r.into_string().map_err(|e| e.to_string())?,
             Err(ureq::Error::Status(404, _)) => return Err("На GitHub пока нет релизов.".into()),
             Err(ureq::Error::Status(403 | 429, _)) => return Err("GitHub временно ограничил запросы, попробуйте позже.".into()),
             Err(e) => return Err(crate::pinger::short_error(&e.to_string())),
         };
-        parse(&body, env!("CARGO_PKG_VERSION"))
+        parse_list(&body, env!("CARGO_PKG_VERSION"))
+    }
+
+    pub fn parse_list(body: &str, current: &str) -> Result<Release, String> {
+        let list: Vec<serde_json::Value> = serde_json::from_str(body).map_err(|e| format!("Некорректный ответ GitHub: {e}"))?;
+        let mut best: Option<Release> = None;
+        for item in list.iter().filter(|r| !r.b("draft", false) && !r.b("prerelease", false)) {
+            let Ok(r) = parse(&item.to_string(), current) else { continue };
+            if r.url.is_empty() { continue; }
+            if best.as_ref().map(|b| compare(&r.version, &b.version) > 0).unwrap_or(true) { best = Some(r); }
+        }
+        best.ok_or_else(|| "На GitHub пока нет сборки для Windows.".into())
     }
 
     pub fn parse(body: &str, current: &str) -> Result<Release, String> {
         let json = crate::json::parse_obj(body)?;
         if json.b("draft", false) || json.b("prerelease", false) { return Err("Последний релиз ещё не опубликован.".into()); }
-        let version = json.s("tag_name").trim().trim_start_matches(['v', 'V']).to_string();
+        let version = json.s("tag_name").trim().trim_start_matches("windows-").trim_start_matches(['v', 'V']).to_string();
         if version.split('.').count() < 2 || !version.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) { return Err(format!("Некорректная версия в релизе: {version}")); }
         let body_text = json.s("body");
         let notes = body_text.split("\n## Установка").next().unwrap_or("").lines().map(|l| l.trim_start_matches('#').trim()).collect::<Vec<_>>().join("\n").replace(['`'], "").replace("**", "").trim().to_string();
@@ -187,10 +199,9 @@ pub mod updater {
         0
     }
 
-    /// Downloads the zip (following GitHub's redirect to its asset storage only) and checks the digest.
-    pub fn download(release: &Release, progress: impl Fn(u64, u64)) -> Result<std::path::PathBuf, String> {
-        let folder = crate::store::folder().join("update"); let _ = std::fs::remove_dir_all(&folder); std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-        let zip = folder.join(format!("Wraith-{}.zip", release.version));
+    /// Downloads the zip into memory (following GitHub's redirect to its asset storage only) and checks the digest.
+    /// Nothing touches the disk before the hash matches, so nothing can be swapped in between.
+    pub fn download(release: &Release, progress: impl Fn(u64, u64)) -> Result<Vec<u8>, String> {
         let mut url = release.url.clone();
         for _ in 0..6 {
             checked(&url)?;
@@ -198,30 +209,31 @@ pub mod updater {
             if (300..400).contains(&response.status()) { url = url::Url::parse(&url).unwrap().join(response.header("Location").unwrap_or("")).map_err(|e| e.to_string())?.to_string(); continue; }
             if response.status() != 200 { return Err(format!("GitHub вернул HTTP {}.", response.status())); }
             let total: u64 = response.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0);
-            let mut reader = response.into_reader(); let mut file = std::fs::File::create(&zip).map_err(|e| e.to_string())?;
-            let mut hasher = sha2::Sha256::new(); let mut buf = vec![0u8; 64 * 1024]; let mut done = 0u64;
+            let mut reader = response.into_reader(); let mut data = Vec::with_capacity(total.min(300 << 20) as usize);
+            let mut buf = vec![0u8; 64 * 1024];
             loop {
                 let n = reader.read(&mut buf).map_err(|e| e.to_string())?; if n == 0 { break; }
-                done += n as u64; if done > 300 * 1024 * 1024 { return Err("Архив больше 300 МБ.".into()); }
-                hasher.update(&buf[..n]); file.write_all(&buf[..n]).map_err(|e| e.to_string())?; progress(done, total);
+                if data.len() + n > 300 * 1024 * 1024 { return Err("Архив больше 300 МБ.".into()); }
+                data.extend_from_slice(&buf[..n]); progress(data.len() as u64, total);
             }
-            let actual: String = hasher.finalize().iter().map(|b| format!("{b:02X}")).collect();
-            if actual != release.sha256 { drop(file); let _ = std::fs::remove_file(&zip); return Err("SHA-256 скачанного архива не совпадает.".into()); }
-            return Ok(zip);
+            let actual: String = sha2::Sha256::digest(&data).iter().map(|b| format!("{b:02X}")).collect();
+            if actual != release.sha256 { return Err("SHA-256 скачанного архива не совпадает.".into()); }
+            return Ok(data);
         }
         Err("Слишком много перенаправлений при загрузке.".into())
     }
 
-    /// Unpacks over the app folder after Wraith exits, then starts the new version.
-    pub fn install_and_restart(zip: &std::path::Path) -> Result<(), String> {
-        let target = crate::util::app_dir(); let q = |p: &std::path::Path| p.to_string_lossy().replace('\'', "''");
-        let script = zip.with_file_name("install.ps1");
-        let ps = format!("$ErrorActionPreference = 'Stop'\r\nWait-Process -Id {pid} -Timeout 60 -ErrorAction SilentlyContinue\r\nStart-Sleep -Milliseconds 500\r\n$tmp = Join-Path $env:TEMP ('wraith-update-' + [guid]::NewGuid())\r\nExpand-Archive -LiteralPath '{zip}' -DestinationPath $tmp -Force\r\n$root = $tmp; $inner = Get-ChildItem $tmp -Directory; if ((Get-ChildItem $tmp -File).Count -eq 0 -and $inner.Count -eq 1) {{ $root = $inner[0].FullName }}\r\nCopy-Item -Path (Join-Path $root '*') -Destination '{dir}' -Recurse -Force\r\nRemove-Item $tmp -Recurse -Force\r\nStart-Process -FilePath '{exe}'\r\n",
-            pid = std::process::id(), zip = q(zip), dir = q(&target), exe = q(&target.join("Wraith.exe")));
-        let mut bom = vec![0xEF, 0xBB, 0xBF]; bom.extend_from_slice(ps.as_bytes());
-        std::fs::write(&script, bom).map_err(|e| e.to_string())?;
-        let writable = std::fs::write(target.join(".wraith-write-test"), b"").is_ok(); let _ = std::fs::remove_file(target.join(".wraith-write-test"));
-        let args = format!("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"", script.to_string_lossy());
-        if crate::util::shell_execute("powershell.exe", &args, if writable { Some("open") } else { Some("runas") }) { Ok(()) } else { Err("Установка отменена.".into()) }
+    /// Unpacks the verified archive over the app folder and starts the new version.
+    pub fn install_and_restart(zip: &[u8]) -> Result<(), String> {
+        crate::core::shutdown();
+        crate::install::extract(zip, &crate::util::app_dir(), &|_, _| {})?;
+        if crate::util::installed() { let _ = std::fs::write(crate::util::app_dir().join("wraith.installed"), env!("CARGO_PKG_VERSION")); }
+        // A new process (elevated through the task when installed); the flag makes it wait for this one to exit.
+        let _ = std::fs::write(crate::store::folder().join("restart.pending"), b"");
+        let exe = crate::util::app_dir().join("Wraith.exe");
+        if !(crate::util::installed() && crate::install::run_task(crate::install::TASK)) {
+            std::process::Command::new(&exe).arg("--elevated").spawn().map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 }

@@ -4,11 +4,13 @@
 
 mod core;
 mod importer;
+mod install;
 mod json;
 mod log;
 mod model;
 mod pinger;
 mod routing;
+mod setup;
 mod singbox;
 mod store;
 mod subs;
@@ -21,10 +23,16 @@ mod tests;
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let has = |a: &str| args.iter().any(|x| x == a);
+    if cfg!(feature = "setup") { return setup::run(); }
+    if has("--uninstall") { install::uninstall(); return Ok(()); }
+    // The installed app always runs elevated: an unelevated start hands over to the scheduled task.
+    if install::elevate_via_task() { return Ok(()); }
+    let pending = store::folder().join("restart.pending");
+    let wait = has("--elevated") || pending.exists(); let _ = std::fs::remove_file(&pending);
     // One instance: a second launch brings the running window to the front.
-    let name: Vec<u16> = "Local\\WraithDesktopSingleInstance".encode_utf16().chain(Some(0)).collect();
+    let name: Vec<u16> = (if cfg!(debug_assertions) { "Local\\WraithDesktopSingleInstance-debug" } else { "Local\\WraithDesktopSingleInstance" }).encode_utf16().chain(Some(0)).collect();
     let mut acquired = false;
-    for _ in 0..if has("--elevated") { 50 } else { 1 } {
+    for _ in 0..if wait { 50 } else { 1 } {
         let h = unsafe { windows_sys::Win32::System::Threading::CreateMutexW(std::ptr::null(), 1, name.as_ptr()) };
         if !h.is_null() && unsafe { windows_sys::Win32::Foundation::GetLastError() } != 183 { acquired = true; let _ = h; break; }
         if !h.is_null() { unsafe { windows_sys::Win32::Foundation::CloseHandle(h) }; }
@@ -38,6 +46,7 @@ fn main() -> eframe::Result<()> {
     #[cfg(debug_assertions)]
     if let Some(t) = args.iter().find_map(|a| a.strip_prefix("--theme=")) { let t = t.to_string(); store::update(|s| s.set("theme", t.into())); }
     core::recover();
+    install::clean_old_files();
     std::panic::set_hook(Box::new(|info| { log::add(format!("Сбой: {info}")); core::shutdown(); }));
     log::add(format!("Wraith {} запущен", env!("CARGO_PKG_VERSION")));
 

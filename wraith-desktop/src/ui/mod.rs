@@ -78,7 +78,7 @@ pub mod tray {
                 let st = crate::core::status();
                 if st.state == crate::core::State::Off {
                     let selected = crate::store::get().selected().cloned();
-                    let tun = crate::store::get().s("tunnelMode") == "tun";
+                    let tun = crate::model::uses_tun(&crate::store::get().settings);
                     match selected { Some(p) if !tun || crate::util::is_admin() => crate::core::connect(p), _ => super::show_window() }
                 } else { crate::core::disconnect(); }
                 super::repaint();
