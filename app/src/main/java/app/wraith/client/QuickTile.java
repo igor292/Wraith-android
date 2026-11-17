@@ -24,14 +24,14 @@ public final class QuickTile extends TileService {
         CoreRouter.verifyStatus(this);
         Tile tile=getQsTile();if(tile==null)return;
         JSONObject selected=null;try{selected=Store.get(this).selected();}catch(Exception ignored){}
-        String selectedServer=selected==null?"Сервер не выбран":PingInfo.displayName(selected.optString("name","Выбранный сервер"));
+        String selectedServer=selected==null?L.t("Сервер не выбран","No server selected"):PingInfo.displayName(selected.optString("name",L.t("Выбранный сервер","Selected server")));
         int state=WraithService.state;
         String activeServer=WraithService.profileName==null||WraithService.profileName.isBlank()?selectedServer:PingInfo.displayName(WraithService.profileName);
         tile.setLabel(state==WraithService.CONNECTED?activeServer:"Wraith");
-        if(Build.VERSION.SDK_INT>=29)tile.setSubtitle(state==WraithService.CONNECTED?"Подключено · "+activeServer:state==WraithService.CONNECTING?"Подключение · "+activeServer:selectedServer);
-        tile.setContentDescription(state==WraithService.CONNECTED?"Wraith подключён к "+activeServer:"Wraith · "+selectedServer);
+        if(Build.VERSION.SDK_INT>=29)tile.setSubtitle(state==WraithService.CONNECTED?L.t("Подключено · ","Connected · ")+activeServer:state==WraithService.CONNECTING?L.t("Подключение · ","Connecting · ")+activeServer:selectedServer);
+        tile.setContentDescription(state==WraithService.CONNECTED?L.t("Wraith подключён к ","Wraith is connected to ")+activeServer:"Wraith · "+selectedServer);
         tile.setState(selected==null?Tile.STATE_UNAVAILABLE:state==WraithService.CONNECTED||state==WraithService.CONNECTING?Tile.STATE_ACTIVE:Tile.STATE_INACTIVE);
-        if(Build.VERSION.SDK_INT>=30)tile.setStateDescription(state==WraithService.CONNECTED?"Подключено":state==WraithService.CONNECTING?"Подключение":state==WraithService.STOPPING?"Отключение":"Выключено");
+        if(Build.VERSION.SDK_INT>=30)tile.setStateDescription(state==WraithService.CONNECTED?L.t("Подключено","Connected"):state==WraithService.CONNECTING?L.t("Подключение","Connection"):state==WraithService.STOPPING?L.t("Отключение","Disconnecting"):L.t("Выключено","Off"));
         tile.updateTile();
     }
 

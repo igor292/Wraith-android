@@ -37,7 +37,7 @@ final class DnsChoice {
     /** Stores the DNS servers of the best non-VPN network into settings[_systemDns]. */
     static void inject(Context context,JSONObject settings){
         if(settings==null)return;
-        try{settings.put(SYSTEM_KEY,new JSONArray(read(context)));}catch(Exception e){AppLog.add("DNS телефона: "+Subscriptions.safeError(e));}
+        try{settings.put(SYSTEM_KEY,new JSONArray(read(context)));}catch(Exception e){AppLog.add(L.t("DNS телефона: ","Phone DNS: ")+Subscriptions.safeError(e));}
     }
     static List<String> read(Context context){
         List<String> out=new ArrayList<>();

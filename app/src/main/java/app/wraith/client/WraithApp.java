@@ -1,7 +1,6 @@
 package app.wraith.client;
 
 import android.app.Application;
-import io.nekohasekai.libbox.*;
 import java.io.File;
 import java.util.concurrent.*;
 import android.content.*;
@@ -17,8 +16,7 @@ public final class WraithApp extends Application {
     public static final String VERSION=BuildConfig.VERSION_NAME;
     @Override public void onCreate(){
         super.onCreate();
-        // libbox and libXray each bundle an independent Go runtime. They must never be loaded
-        // into the same OS process, so the Xray VPN service skips all libbox setup here.
+        // The Xray processes need none of the app-process setup below.
         String process=processName();
         if((getPackageName()+":xray").equals(process)||(getPackageName()+":xray_probe").equals(process))return;
         CoreRouter.restoreStatus(this);
@@ -33,11 +31,9 @@ public final class WraithApp extends Application {
             WraithService.rxRate=intent.getLongExtra("rxRate",0);WraithService.txRate=intent.getLongExtra("txRate",0);QuickTile.sync(context);
         }},new IntentFilter(ACTION_CORE_STATE),ContextCompat.RECEIVER_NOT_EXPORTED);
         try{
-            go.Seq.setContext(this);
-            File working=new File(getFilesDir(),"core");if(!working.exists()&&!working.mkdirs())throw new IllegalStateException("Нет доступа к каталогу ядра");
-            SetupOptions options=new SetupOptions();options.setBasePath(getFilesDir().getAbsolutePath());options.setWorkingPath(working.getAbsolutePath());options.setTempPath(getCacheDir().getAbsolutePath());options.setFixAndroidStack(true);options.setLogMaxLines(200);options.setAppVersion(VERSION);options.setAppMarketingVersion("Wraith");options.setOomKillerDisabled(true);
-            Libbox.setup(options);AppLog.add("Wraith "+VERSION+" · Xray основной, sing-box по необходимости · sing-box "+Libbox.version());UpdateJob.schedule(this);XrayAssets.scheduleUpdate(this);
-        }catch(Throwable e){coreError=Subscriptions.safeError(e);AppLog.add("Ошибка инициализации ядра: "+coreError);}
+            File working=new File(getFilesDir(),"core");if(!working.exists()&&!working.mkdirs())throw new IllegalStateException(L.t("Нет доступа к каталогу ядра","No access to the core folder"));
+            AppLog.add("Wraith "+VERSION+" · Xray");UpdateJob.schedule(this);XrayAssets.scheduleUpdate(this);
+        }catch(Throwable e){coreError=Subscriptions.safeError(e);AppLog.add(L.t("Ошибка инициализации: ","Initialisation error: ")+coreError);}
     }
     private String processName(){if(Build.VERSION.SDK_INT>=28)return Application.getProcessName();ActivityManager am=getSystemService(ActivityManager.class);if(am!=null)for(ActivityManager.RunningAppProcessInfo p:am.getRunningAppProcesses())if(android.os.Process.myPid()==p.pid)return p.processName;return getPackageName();}
 }

@@ -22,11 +22,6 @@ public class XrayOutboundOptionsTest {
         }
     }
 
-    @Test public void fullSingboxAndUnsupportedShareProtocolsKeepSingbox()throws Exception{
-        JSONObject profile=Json.obj("source","{\"outbounds\":[{\"type\":\"vless\"}]}","full",true,"outbound",Json.obj("type","vless"));
-        assertEquals(CoreRouter.SING_BOX,CoreRouter.engine(profile,Json.obj("fragment",true)));
-        for(String type:new String[]{"hysteria2","tuic","anytls","wireguard","ssh"})assertEquals(CoreRouter.SING_BOX,CoreRouter.engine(Json.obj("source",type+"://example.com","outbound",Json.obj("type",type)),Json.obj("noise",true)));
-    }
 
     @Test public void appHelperChainsExistingDialerWithoutLosingProviderOptions()throws Exception{
         JSONObject primary=node("provider", "xtls-rprx-vision");

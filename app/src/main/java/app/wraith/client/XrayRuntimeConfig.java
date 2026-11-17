@@ -66,7 +66,7 @@ final class XrayRuntimeConfig {
     static JSONObject source(JSONObject profile,IsolatedXray xray)throws Exception{
         String source=profile.optString("source","").trim();
         if(source.startsWith("{")){
-            JSONObject root=new JSONObject(source);if(!XrayConfig.looksLike(root))throw new IllegalArgumentException("Это не конфигурация Xray.");
+            JSONObject root=new JSONObject(source);if(!XrayConfig.looksLike(root))throw new IllegalArgumentException(L.t("Это не конфигурация Xray.","This is not an Xray configuration."));
             if(root.optJSONArray("outbounds")==null&&root.has("protocol")){
                 JSONObject outbound=Json.copy(root);for(String field:List.of("dns","routing","log","remarks","name","meta","env"))outbound.remove(field);
                 if(outbound.optString("tag").isEmpty())outbound.put("tag","proxy");
@@ -75,11 +75,12 @@ final class XrayRuntimeConfig {
             }
             return root;
         }
-        if(source.isEmpty())throw new IllegalArgumentException("У профиля нет исходной ссылки для Xray.");
+        if(source.isEmpty())throw new IllegalArgumentException(L.t("У профиля нет исходной ссылки для Xray.","The profile has no source link for Xray."));
+        JSONObject local=XrayLinks.outbound(source);if(local!=null)return Json.obj("outbounds",Json.arr(local));
         JSONObject response=new JSONObject(xray.invoke(Json.obj("apiVersion",3,"method","convertShareLinksToXrayJson","payload",Json.obj("text",source)).toString()));
-        if(!response.optBoolean("success"))throw new IllegalArgumentException(response.optString("error","Не удалось преобразовать ссылку в Xray."));
+        if(!response.optBoolean("success"))throw new IllegalArgumentException(response.optString("error",L.t("Не удалось преобразовать ссылку в Xray.","Could not convert the link to Xray.")));
         JSONObject data=response.optJSONObject("data");JSONArray outbounds=data==null?null:data.optJSONArray("outbounds");
-        if(outbounds==null||outbounds.length()==0)throw new IllegalArgumentException("Ссылка не содержит Xray-серверов.");return Json.obj("outbounds",new JSONArray(outbounds.toString()));
+        if(outbounds==null||outbounds.length()==0)throw new IllegalArgumentException(L.t("Ссылка не содержит Xray-серверов.","The link contains no Xray servers."));return Json.obj("outbounds",new JSONArray(outbounds.toString()));
     }
 
     /** Keep provider tags and dependent dialers intact while selecting a deterministic default. */
@@ -91,7 +92,7 @@ final class XrayRuntimeConfig {
         boolean pin=settings.optBoolean("pinCandidate")||(!settings.optBoolean("autoSelect")&&!providerBalancing(root));
         if(pin){
             JSONObject chosen=null;JSONArray ordered=new JSONArray();for(JSONObject outbound:Json.objects(outbounds))if(tag.equals(outbound.optString("tag"))){chosen=outbound;break;}
-            if(chosen==null)throw new IllegalArgumentException("Не найден выбранный Xray outbound.");
+            if(chosen==null)throw new IllegalArgumentException(L.t("Не найден выбранный Xray outbound.","The selected Xray outbound was not found."));
             JSONObject expected=profile.optJSONObject("outbound"),peers=chosen.optJSONObject("settings");
             if(expected!=null&&peers!=null)for(String key:List.of("vnext","servers")){
                 JSONArray list=peers.optJSONArray(key);if(list==null||list.length()<2)continue;
@@ -109,11 +110,11 @@ final class XrayRuntimeConfig {
             if(dependency.isEmpty())outbound.remove("proxySettings");
             else if(legacy.optBoolean("transportLayer")){
                 JSONObject stream=outbound.optJSONObject("streamSettings");if(stream==null){stream=new JSONObject();outbound.put("streamSettings",stream);}JSONObject sockopt=stream.optJSONObject("sockopt");if(sockopt==null){sockopt=new JSONObject();stream.put("sockopt",sockopt);}
-                if(sockopt.has("dialerProxy")&&!dependency.equals(sockopt.optString("dialerProxy")))throw new IllegalArgumentException("В JSON конфликтуют proxySettings и dialerProxy.");sockopt.put("dialerProxy",dependency);outbound.remove("proxySettings");
+                if(sockopt.has("dialerProxy")&&!dependency.equals(sockopt.optString("dialerProxy")))throw new IllegalArgumentException(L.t("В JSON конфликтуют proxySettings и dialerProxy.","proxySettings and dialerProxy conflict in the JSON."));sockopt.put("dialerProxy",dependency);outbound.remove("proxySettings");
             }
         }
         // Xray 26 refuses to start on the removed "allowInsecure"; drop it so the rest of the document still runs.
-        for(JSONObject outbound:Json.objects(root.optJSONArray("outbounds"))){JSONObject stream=outbound.optJSONObject("streamSettings"),tls=stream==null?null:stream.optJSONObject("tlsSettings");if(tls!=null&&tls.remove("allowInsecure")!=null)AppLog.add("allowInsecure удалён: Xray 26 его не поддерживает, сертификат проверяется.");}
+        for(JSONObject outbound:Json.objects(root.optJSONArray("outbounds"))){JSONObject stream=outbound.optJSONObject("streamSettings"),tls=stream==null?null:stream.optJSONObject("tlsSettings");if(tls!=null&&tls.remove("allowInsecure")!=null)AppLog.add(L.t("allowInsecure удалён: Xray 26 его не поддерживает, сертификат проверяется.","allowInsecure removed: Xray 26 does not support it, the certificate is verified."));}
         // DPI options apply to every server the core may pick, not only to the first one.
         List<String> candidates=proxyTags(root);
         if(pin)XrayOutboundOptions.apply(root,profile,settings,tag);
@@ -201,14 +202,14 @@ final class XrayRuntimeConfig {
     }
 
     static String proxyTag(JSONObject root,JSONObject profile)throws Exception{
-        JSONArray outbounds=root.optJSONArray("outbounds");if(outbounds==null)throw new IllegalArgumentException("В конфигурации Xray нет outbounds.");
+        JSONArray outbounds=root.optJSONArray("outbounds");if(outbounds==null)throw new IllegalArgumentException(L.t("В конфигурации Xray нет outbounds.","The Xray configuration has no outbounds."));
         JSONObject expected=profile==null?null:profile.optJSONObject("outbound"),chosen=null,first=null;
         for(JSONObject outbound:Json.objects(outbounds)){
             String protocol=outbound.optString("protocol").toLowerCase(Locale.ROOT);if(Set.of("freedom","blackhole","dns","loopback").contains(protocol))continue;
             if(first==null)first=outbound;
             if(expected!=null&&protocol.equalsIgnoreCase(expected.optString("type"))&&containsEndpoint(outbound,expected.optString("server"),expected.optInt("server_port"))){chosen=outbound;break;}
         }
-        if(chosen==null)chosen=first;if(chosen==null)throw new IllegalArgumentException("В конфигурации Xray нет прокси-outbound.");
+        if(chosen==null)chosen=first;if(chosen==null)throw new IllegalArgumentException(L.t("В конфигурации Xray нет прокси-outbound.","The Xray configuration has no proxy outbound."));
         String tag=chosen.optString("tag");if(tag.isEmpty()){tag=uniqueTag(outbounds,"proxy");chosen.put("tag",tag);}return tag;
     }
 
@@ -244,7 +245,7 @@ final class XrayRuntimeConfig {
     }
 
     static JSONArray inbounds(JSONObject s)throws Exception{
-        int mtu=s.optInt("mtu",1500);if(mtu<1280||mtu>9000)throw new IllegalArgumentException("MTU должен быть от 1280 до 9000.");
+        int mtu=s.optInt("mtu",1500);if(mtu<1280||mtu>9000)throw new IllegalArgumentException(L.t("MTU должен быть от 1280 до 9000.","MTU must be between 1280 and 9000."));
         JSONArray a=Json.arr(Json.obj("tag","tun-in","port",0,"protocol","tun","settings",Json.obj("name","wraith","desc","Wraith","mtu",mtu),"sniffing",Json.obj("enabled",true,"routeOnly",true,"destOverride",Json.arr("http","tls","quic"))));
         if(s.optBoolean("localProxy",false)){
             boolean lan=s.optBoolean("allowLan");int port=s.optInt("proxyPort",2081);String listen=lan?"0.0.0.0":"127.0.0.1";
@@ -252,7 +253,7 @@ final class XrayRuntimeConfig {
             else{
                 // A LAN-reachable proxy without credentials is an open relay for anyone on the
                 // same Wi-Fi. The sing-box builder already required the password; Xray did not.
-                String password=s.optString("proxyPassword");if(password.length()<8)throw new IllegalArgumentException("Для доступа из LAN задайте пароль прокси не короче 8 символов.");
+                String password=s.optString("proxyPassword");if(password.length()<8)throw new IllegalArgumentException(L.t("Для доступа из LAN задайте пароль прокси не короче 8 символов.","For LAN access set a proxy password of at least 8 characters."));
                 a.put(Json.obj("tag","socks","listen",listen,"port",port,"protocol","socks","settings",Json.obj("auth","password","accounts",Json.arr(Json.obj("user","wraith","pass",password)),"udp",true)));
                 a.put(Json.obj("tag","http","listen",listen,"port",s.optInt("httpProxyPort",2082),"protocol","http","settings",Json.obj("accounts",Json.arr(Json.obj("user","wraith","pass",password)))));
             }
@@ -260,20 +261,20 @@ final class XrayRuntimeConfig {
         return a;
     }
     private static String ensureDnsOutbound(JSONObject root)throws Exception{
-        JSONArray outbounds=root.optJSONArray("outbounds");if(outbounds==null)throw new IllegalArgumentException("В конфигурации Xray нет outbounds.");
+        JSONArray outbounds=root.optJSONArray("outbounds");if(outbounds==null)throw new IllegalArgumentException(L.t("В конфигурации Xray нет outbounds.","The Xray configuration has no outbounds."));
         for(int i=0;i<outbounds.length();i++){JSONObject outbound=outbounds.optJSONObject(i);if(outbound!=null&&outbound.optString("protocol").equals("dns")){String tag=outbound.optString("tag");if(!tag.isEmpty())return tag;tag="wraith-dns";outbound.put("tag",tag);return tag;}}
         String tag=uniqueTag(outbounds,"wraith-dns");
         outbounds.put(Json.obj("protocol","dns","tag",tag,"settings",Json.obj("nonIPQuery","skip")));return tag;
     }
     private static String[] ensureAppOutbounds(JSONObject root,JSONObject profile)throws Exception{
-        JSONArray outbounds=root.optJSONArray("outbounds");if(outbounds==null)throw new IllegalArgumentException("В конфигурации Xray нет outbounds.");
+        JSONArray outbounds=root.optJSONArray("outbounds");if(outbounds==null)throw new IllegalArgumentException(L.t("В конфигурации Xray нет outbounds.","The Xray configuration has no outbounds."));
         String proxy=proxyTag(root,profile),direct="",block="";
         for(int i=0;i<outbounds.length();i++){
             JSONObject o=outbounds.optJSONObject(i);if(o==null)continue;String protocol=o.optString("protocol"),tag=o.optString("tag");
             if(protocol.equals("freedom")&&direct.isEmpty()&&!tag.isEmpty())direct=tag;
             if(protocol.equals("blackhole")&&block.isEmpty()&&!tag.isEmpty())block=tag;
         }
-        if(proxy.isEmpty())throw new IllegalArgumentException("В конфигурации Xray нет прокси-outbound.");
+        if(proxy.isEmpty())throw new IllegalArgumentException(L.t("В конфигурации Xray нет прокси-outbound.","The Xray configuration has no proxy outbound."));
         if(direct.isEmpty()){direct=uniqueTag(outbounds,"direct");outbounds.put(Json.obj("protocol","freedom","tag",direct,"settings",Json.obj("domainStrategy","UseIPv4")));}
         if(block.isEmpty()){block=uniqueTag(outbounds,"block");outbounds.put(Json.obj("protocol","blackhole","tag",block,"settings",new JSONObject()));}
         return new String[]{proxy,direct,block};

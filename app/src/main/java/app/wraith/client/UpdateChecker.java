@@ -28,10 +28,10 @@ final class UpdateChecker {
         try{
             connection.setRequestProperty("Accept","application/vnd.github+json");
             int status=connection.getResponseCode();
-            if(status==404)throw new IOException("На GitHub пока нет опубликованных релизов");
-            if(status==403||status==429)throw new IOException("GitHub временно ограничил запросы, попробуйте позже");
-            if(status!=200)throw new IOException("GitHub вернул HTTP "+status);
-            byte[] data=Subscriptions.bounded(connection.getInputStream());if(data.length>512*1024)throw new IOException("Ответ GitHub слишком большой");
+            if(status==404)throw new IOException(L.t("На GitHub пока нет опубликованных релизов","There are no published releases on GitHub yet"));
+            if(status==403||status==429)throw new IOException(L.t("GitHub временно ограничил запросы, попробуйте позже","GitHub is rate limiting requests, try later"));
+            if(status!=200)throw new IOException(L.t("GitHub вернул HTTP ","GitHub returned HTTP ")+status);
+            byte[] data=Subscriptions.bounded(connection.getInputStream());if(data.length>512*1024)throw new IOException(L.t("Ответ GitHub слишком большой","The GitHub response is too large"));
             return parse(new String(data,StandardCharsets.UTF_8),WraithApp.VERSION);
         }finally{connection.disconnect();}
     }
@@ -39,19 +39,19 @@ final class UpdateChecker {
     /** GitHub "latest release" JSON → update offer, compared with the installed version name. */
     static Result parse(String body,String currentVersion)throws Exception{
         JSONObject json=new JSONObject(body);
-        if(json.optBoolean("draft")||json.optBoolean("prerelease"))throw new IOException("Последний релиз ещё не опубликован");
+        if(json.optBoolean("draft")||json.optBoolean("prerelease"))throw new IOException(L.t("Последний релиз ещё не опубликован","The latest release is not published yet"));
         String name=json.getString("tag_name").trim().replaceFirst("^[vV]","");
-        if(!name.matches("[0-9]+(\\.[0-9]+){1,3}"))throw new IOException("Некорректная версия в релизе: "+name);
+        if(!name.matches("[0-9]+(\\.[0-9]+){1,3}"))throw new IOException(L.t("Некорректная версия в релизе: ","Invalid version in the release: ")+name);
         JSONObject apk=null;JSONArray assets=json.optJSONArray("assets");
         for(JSONObject asset:Json.objects(assets))if(asset.optString("name").toLowerCase(Locale.ROOT).endsWith(".apk")){apk=asset;break;}
-        if(apk==null)throw new IOException("В релизе "+name+" нет APK");
+        if(apk==null)throw new IOException(L.t("В релизе ","Release ")+name+L.t(" нет APK"," has no APK"));
         String url=apk.getString("browser_download_url").trim();
         URI uri=new URI(url);
-        if(!"https".equalsIgnoreCase(uri.getScheme())||!"github.com".equalsIgnoreCase(uri.getHost())||uri.getUserInfo()!=null||!uri.getPath().toLowerCase(Locale.ROOT).startsWith(("/"+REPO+"/releases/download/").toLowerCase(Locale.ROOT)))throw new IOException("APK должен лежать в релизах "+REPO);
+        if(!"https".equalsIgnoreCase(uri.getScheme())||!"github.com".equalsIgnoreCase(uri.getHost())||uri.getUserInfo()!=null||!uri.getPath().toLowerCase(Locale.ROOT).startsWith(("/"+REPO+"/releases/download/").toLowerCase(Locale.ROOT)))throw new IOException(L.t("APK должен лежать в релизах ","The APK must be in the releases of ")+REPO);
         String digest=apk.optString("digest").trim();
-        if(!digest.toLowerCase(Locale.ROOT).startsWith("sha256:"))throw new IOException("GitHub не сообщил SHA-256 для APK");
+        if(!digest.toLowerCase(Locale.ROOT).startsWith("sha256:"))throw new IOException(L.t("GitHub не сообщил SHA-256 для APK","GitHub did not report the APK SHA-256"));
         String sha=digest.substring(7).toUpperCase(Locale.ROOT);
-        if(!sha.matches("[0-9A-F]{64}"))throw new IOException("Некорректная SHA-256 в релизе");
+        if(!sha.matches("[0-9A-F]{64}"))throw new IOException(L.t("Некорректная SHA-256 в релизе","Invalid SHA-256 in the release"));
         // Release notes end before the install instructions, which only matter on the web page.
         String notes=json.optString("body").split("(?m)^#+\\s*Установка")[0].replaceAll("(?m)^#+\\s*","").replace("`","").replaceAll("\\*\\*","").trim();if(notes.length()>500)notes=notes.substring(0,500).trim()+"…";
         return new Result(name,url,sha,notes,compare(name,currentVersion)>0);
@@ -69,8 +69,8 @@ final class UpdateChecker {
 
     interface Progress{void update(long downloaded,long total);}
     static File download(Context context,Result result,Progress progress)throws Exception{
-        File directory=context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);if(directory==null)throw new IOException("Хранилище загрузок недоступно");
-        if(!directory.exists()&&!directory.mkdirs())throw new IOException("Не удалось создать каталог загрузок");
+        File directory=context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);if(directory==null)throw new IOException(L.t("Хранилище загрузок недоступно","Download storage unavailable"));
+        if(!directory.exists()&&!directory.mkdirs())throw new IOException(L.t("Не удалось создать каталог загрузок","Could not create the download folder"));
         // The version comes from the network; never let it become a path.
         String safeName=result.name.replaceAll("[^0-9A-Za-z._-]","_");
         File target=new File(directory,"Wraith-"+safeName+".apk"),part=new File(directory,target.getName()+".part");
@@ -81,19 +81,19 @@ final class UpdateChecker {
                 connection.setRequestProperty("Accept","application/octet-stream");
                 int status=connection.getResponseCode();
                 if(status>=300&&status<400){
-                    if(hops>=5)throw new IOException("Слишком много перенаправлений при загрузке APK");
-                    String location=connection.getHeaderField("Location");if(location==null)throw new IOException("GitHub не указал адрес APK");
+                    if(hops>=5)throw new IOException(L.t("Слишком много перенаправлений при загрузке APK","Too many redirects while downloading the APK"));
+                    String location=connection.getHeaderField("Location");if(location==null)throw new IOException(L.t("GitHub не указал адрес APK","GitHub did not give the APK address"));
                     String next=new URL(connection.getURL(),location).toString();connection.disconnect();connection=open(next,10000,30000);continue;
                 }
-                if(status!=200)throw new IOException("Сервер APK вернул HTTP "+status);
+                if(status!=200)throw new IOException(L.t("Сервер APK вернул HTTP ","The APK server returned HTTP ")+status);
                 break;
             }
-            long declared=connection.getContentLengthLong();if(declared>250L*1024*1024)throw new IOException("APK больше 250 МБ");
+            long declared=connection.getContentLengthLong();if(declared>250L*1024*1024)throw new IOException(L.t("APK больше 250 МБ","The APK is larger than 250 MB"));
             MessageDigest digest=MessageDigest.getInstance("SHA-256");long total=0;if(progress!=null)progress.update(0,declared);
-            try(InputStream in=new BufferedInputStream(connection.getInputStream());OutputStream out=new BufferedOutputStream(new FileOutputStream(part))){byte[] buffer=new byte[64*1024];int count;while((count=in.read(buffer))!=-1){total+=count;if(total>250L*1024*1024)throw new IOException("APK больше 250 МБ");digest.update(buffer,0,count);out.write(buffer,0,count);if(progress!=null)progress.update(total,declared);}}
-            String actual=hex(digest.digest());if(!actual.equals(result.sha256)){part.delete();throw new IOException("SHA-256 загруженного APK не совпадает");}
-            if(target.exists()&&!target.delete())throw new IOException("Не удалось заменить старый APK");
-            if(!part.renameTo(target))throw new IOException("Не удалось завершить загрузку APK");
+            try(InputStream in=new BufferedInputStream(connection.getInputStream());OutputStream out=new BufferedOutputStream(new FileOutputStream(part))){byte[] buffer=new byte[64*1024];int count;while((count=in.read(buffer))!=-1){total+=count;if(total>250L*1024*1024)throw new IOException(L.t("APK больше 250 МБ","The APK is larger than 250 MB"));digest.update(buffer,0,count);out.write(buffer,0,count);if(progress!=null)progress.update(total,declared);}}
+            String actual=hex(digest.digest());if(!actual.equals(result.sha256)){part.delete();throw new IOException(L.t("SHA-256 загруженного APK не совпадает","SHA-256 of the downloaded APK does not match"));}
+            if(target.exists()&&!target.delete())throw new IOException(L.t("Не удалось заменить старый APK","Could not replace the old APK"));
+            if(!part.renameTo(target))throw new IOException(L.t("Не удалось завершить загрузку APK","Could not finish downloading the APK"));
             return target;
         }finally{connection.disconnect();if(part.exists())part.delete();}
     }
@@ -101,7 +101,7 @@ final class UpdateChecker {
     /** HTTPS to an allowed GitHub host only. Only the app version is sent: no installation ID or device data. */
     static HttpURLConnection open(String url,int connectTimeout,int readTimeout)throws IOException{
         URL u=new URL(url);
-        if(!"https".equalsIgnoreCase(u.getProtocol())||!allowedHost(u.getHost())||u.getUserInfo()!=null)throw new IOException("Обновления загружаются только с GitHub по HTTPS");
+        if(!"https".equalsIgnoreCase(u.getProtocol())||!allowedHost(u.getHost())||u.getUserInfo()!=null)throw new IOException(L.t("Обновления загружаются только с GitHub по HTTPS","Updates are downloaded only from GitHub over HTTPS"));
         HttpURLConnection connection=(HttpURLConnection)u.openConnection();
         connection.setConnectTimeout(connectTimeout);connection.setReadTimeout(readTimeout);connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("User-Agent","Wraith/"+WraithApp.VERSION+"/Android");

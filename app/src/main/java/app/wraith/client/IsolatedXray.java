@@ -64,22 +64,22 @@ final class IsolatedXray {
         }
         String hash=hex(MessageDigest.getInstance("SHA-256").digest(dex));
         File dir=new File(context.getCodeCacheDir(),"xray-bindings");
-        if(!dir.exists()&&!dir.mkdirs())throw new IOException("Не удалось создать каталог Xray bindings.");
+        if(!dir.exists()&&!dir.mkdirs())throw new IOException(L.t("Не удалось создать каталог Xray bindings.","Could not create the Xray bindings folder."));
         File jar=new File(dir,"bindings-"+hash+".jar");
         if(!jar.isFile()||!matches(jar,dex)){
-            if(jar.exists()&&!jar.delete())throw new IOException("Не удалось заменить повреждённые Xray bindings.");
+            if(jar.exists()&&!jar.delete())throw new IOException(L.t("Не удалось заменить повреждённые Xray bindings.","Could not replace damaged Xray bindings."));
             File pending=File.createTempFile("bindings-",".tmp",dir);
             try{
                 // Android 14+ requires dynamically loaded code to be read-only before it is
                 // written. The already opened descriptor can still complete the atomic copy.
                 try(FileOutputStream out=new FileOutputStream(pending)){
-                    if(!pending.setReadOnly())throw new IOException("Не удалось защитить Xray bindings от записи.");
+                    if(!pending.setReadOnly())throw new IOException(L.t("Не удалось защитить Xray bindings от записи.","Could not write-protect Xray bindings."));
                     out.write(dex);out.getFD().sync();
                 }
-                if(!pending.renameTo(jar))throw new IOException("Не удалось установить Xray bindings.");
+                if(!pending.renameTo(jar))throw new IOException(L.t("Не удалось установить Xray bindings.","Could not install Xray bindings."));
             }finally{if(pending.exists())pending.delete();}
         }
-        if(!jar.setReadOnly())throw new IOException("Не удалось защитить Xray bindings от записи.");
+        if(!jar.setReadOnly())throw new IOException(L.t("Не удалось защитить Xray bindings от записи.","Could not write-protect Xray bindings."));
         ClassLoader loader=new ChildFirstDexClassLoader(jar.getAbsolutePath(),dir.getAbsolutePath(),context.getApplicationInfo().nativeLibraryDir,context.getClassLoader());
         Class<?> seq=Class.forName("go.Seq",true,loader);seq.getMethod("setContext",Context.class).invoke(null,context.getApplicationContext());
         Class<?> bridge=Class.forName("libXray.LibXray",true,loader);

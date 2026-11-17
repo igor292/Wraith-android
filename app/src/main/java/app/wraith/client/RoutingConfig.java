@@ -33,7 +33,7 @@ public final class RoutingConfig {
             if(link.isEmpty()||link.equals("happ://routing/off"))return null;
             // A broken provider profile must not make the whole tunnel unbuildable.
             try{ return decode(link); }
-            catch(Exception e){ AppLog.add("Профиль маршрутизации подписки не разобран: "+Subscriptions.safeError(e)); return null; }
+            catch(Exception e){ AppLog.add(L.t("Профиль маршрутизации подписки не разобран: ","Subscription routing profile could not be parsed: ")+Subscriptions.safeError(e)); return null; }
         }
         return null;
     }
@@ -74,19 +74,19 @@ public final class RoutingConfig {
         // it would silently turn the VPN off for everything, which is never what a provider means.
         JSONArray sites=routing.optJSONArray("ProxySites"),ips=routing.optJSONArray("ProxyIp");
         boolean hasProxyRules=(sites!=null&&sites.length()>0)||(ips!=null&&ips.length()>0);
-        if(!hasProxyRules)AppLog.add("Профиль «"+routing.optString("Name")+"»: GlobalProxy=false без правил Proxy — игнорируется, неподошедший трафик идёт через VPN.");
+        if(!hasProxyRules)AppLog.add(L.t("Профиль «","Profile «")+routing.optString("Name")+L.t("»: GlobalProxy=false без правил Proxy — игнорируется, неподошедший трафик идёт через VPN.","»: GlobalProxy=false without Proxy rules — ignored, unmatched traffic goes through the VPN."));
         return !hasProxyRules;
     }
     /** "Name · N записей" for the routing a profile gets, or a plain "no rules" statement. */
     public static String summary(JSONObject state,JSONObject profile){
         try{
             JSONObject routing=profileFor(state,profile);
-            if(routing==null)return "без правил провайдера";
+            if(routing==null)return L.t("без правил провайдера","no provider rules");
             JSONArray rules=new JSONArray();append(rules,routing);
             int entries=0;
             for(JSONObject r:Json.objects(rules))entries+=ConfigBuilder.split(r.optString("value"),r.optString("kind")).size();
-            return "правила «"+routing.optString("Name","провайдер")+"» · "+entries+" записей";
-        }catch(Exception e){return "правила провайдера: ошибка";}
+            return L.t("правила «","rules «")+routing.optString("Name",L.t("провайдер","provider"))+"» · "+entries+L.t(" записей"," entries");
+        }catch(Exception e){return L.t("правила провайдера: ошибка","provider rules: error");}
     }
     public static JSONArray rulesFor(JSONObject state,JSONObject profile)throws Exception{
         JSONArray result=new JSONArray();
@@ -97,12 +97,12 @@ public final class RoutingConfig {
         return result;
     }
     public static JSONObject decode(String link)throws Exception{
-        if(!link.startsWith("happ://routing/add/")&&!link.startsWith("happ://routing/onadd/"))throw new IllegalArgumentException("Некорректный профиль маршрутизации");
+        if(!link.startsWith("happ://routing/add/")&&!link.startsWith("happ://routing/onadd/"))throw new IllegalArgumentException(L.t("Некорректный профиль маршрутизации","Invalid routing profile"));
         int slash=link.indexOf('/',"happ://routing/".length());
         return new JSONObject(ImportParser.base64(link.substring(slash+1).trim()));
     }
     static void append(JSONArray out,JSONObject json)throws Exception{
-        String name=json.optString("Name","Профиль провайдера");
+        String name=json.optString("Name",L.t("Профиль провайдера","Provider profile"));
         JSONArray ordered=json.optJSONArray("Rules");
         if(ordered!=null&&ordered.length()>0){
             for(JSONObject rule:Json.objects(ordered)){
@@ -124,7 +124,7 @@ public final class RoutingConfig {
         for(int i=0;i<values.length();i++){
             String value=String.valueOf(values.opt(i)).trim();
             if(value.isEmpty()||value.equals("null"))continue;
-            if(value.startsWith("ext:")){AppLog.add("Правило пропущено: внешние geo-файлы Xray ("+value+") не поддерживаются.");continue;}
+            if(value.startsWith("ext:")){AppLog.add(L.t("Правило пропущено: внешние geo-файлы Xray (","Rule skipped: external Xray geo files (")+value+L.t(") не поддерживаются.",") are not supported."));continue;}
             if(value.startsWith("geoip:")){String geo=value.substring(6).trim();if(geo.equalsIgnoreCase("private"))add(grouped,"ip_is_private","true");else add(grouped,"geoip",geo);continue;}
             if(value.startsWith("geosite:")){add(grouped,"geosite",value.substring(8).trim());continue;}
             if(addresses){add(grouped,"ip_cidr",value);continue;}

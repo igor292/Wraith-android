@@ -7,8 +7,8 @@ android {
         applicationId 'app.wraith.client'
         minSdk 26
         targetSdk 35
-        versionCode 74
-        versionName '0.11.1'
+        versionCode 75
+        versionName '0.12.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17; coreLibraryDesugaringEnabled true }
@@ -22,7 +22,7 @@ android {
 }
 
 // gomobile's bindings are JVM classfiles. Android's separate class loader needs DEX,
-// while compiling them into the app itself would collide with libbox's go.Seq classes.
+// and is loaded in the isolated :xray process.
 def xrayDexAssets = layout.buildDirectory.dir('generated/xrayAssets')
 android.sourceSets.main.assets.srcDir(xrayDexAssets)
 def dexXrayBindings = tasks.register('dexXrayBindings', JavaExec) {
@@ -58,9 +58,8 @@ tasks.configureEach {
 
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
-    implementation files('libs/libbox.aar')
     // JNI classes are kept in assets and loaded child-first by :xray; this avoids DEX duplicates
-    // with sing-box's own go.Seq classes. The AAR contributes only Xray's native libraries.
+    // in the app's own DEX. The AAR contributes only Xray's native libraries.
     implementation files('libs/libXray.aar')
     implementation 'androidx.core:core:1.15.0'
     implementation 'com.google.android.material:material:1.12.0'

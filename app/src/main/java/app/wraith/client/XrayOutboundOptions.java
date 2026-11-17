@@ -33,7 +33,7 @@ final class XrayOutboundOptions {
         if(settings.optBoolean("mux")&&!vision(primary)&&Set.of("vless","vmess","trojan","shadowsocks").contains(protocol)){
             boolean streams=settings.optString("muxLimit","connections").equals("streams");
             int concurrency=settings.optInt(streams?"muxStreams":"muxConnections",streams?8:4);
-            if(concurrency<1||concurrency>1024)throw new IllegalArgumentException("Ограничение мультиплексора: 1–1024");
+            if(concurrency<1||concurrency>1024)throw new IllegalArgumentException(L.t("Ограничение мультиплексора: 1–1024","Multiplexer limit: 1–1024"));
             JSONObject mux=primary.optJSONObject("mux");if(mux==null)mux=new JSONObject();
             mux.put("enabled",true).put("concurrency",concurrency);primary.put("mux",mux);
         }
@@ -41,11 +41,11 @@ final class XrayOutboundOptions {
 
     static JSONObject fragment(JSONObject settings)throws Exception{
         String packets=settings.optString("fragmentPackets","tlshello").trim().toLowerCase(Locale.ROOT);
-        if(!packets.equals("tlshello")&&!packets.isEmpty())packets=range(packets,"Фрагментирование пакетов",1,100);
+        if(!packets.equals("tlshello")&&!packets.isEmpty())packets=range(packets,L.t("Фрагментирование пакетов","Packet fragmentation"),1,100);
         String type=settings.optString("fragmentType","xray");
         String interval=type.equals("singbox")?String.valueOf(settings.optInt("fragmentDelay",10)):settings.optString("fragmentInterval","10-20");
-        JSONObject options=Json.obj("packets",packets,"length",range(settings.optString("fragmentLength","50-100"),"Длина фрагмента",1,16384),"interval",range(interval,"Задержка фрагмента",0,1000));
-        String split=settings.optString("fragmentMaxSplit","").trim();if(!split.isEmpty())options.put("maxSplit",range(split,"Максимальное разделение",1,10000));
+        JSONObject options=Json.obj("packets",packets,"length",range(settings.optString("fragmentLength","50-100"),L.t("Длина фрагмента","Fragment length"),1,16384),"interval",range(interval,L.t("Задержка фрагмента","Fragment delay"),0,1000));
+        String split=settings.optString("fragmentMaxSplit","").trim();if(!split.isEmpty())options.put("maxSplit",range(split,L.t("Максимальное разделение","Maximum split"),1,10000));
         return options;
     }
 
@@ -54,21 +54,21 @@ final class XrayOutboundOptions {
         String packet=settings.optString("noisePacket","1A,2B,3C").trim();
         switch(type){
             case "array":{
-                if(!packet.matches("(?i)(0x)?[0-9a-f]{1,2}(\\s*,\\s*(0x)?[0-9a-f]{1,2})*"))throw new IllegalArgumentException("Пакет array: байты в hex через запятую, например 1A,2B,3C");
+                if(!packet.matches("(?i)(0x)?[0-9a-f]{1,2}(\\s*,\\s*(0x)?[0-9a-f]{1,2})*"))throw new IllegalArgumentException(L.t("Пакет array: байты в hex через запятую, например 1A,2B,3C","array packet: hex bytes separated by commas, e.g. 1A,2B,3C"));
                 StringBuilder hex=new StringBuilder();for(String item:packet.split(","))hex.append(String.format(Locale.ROOT,"%02x",Integer.parseInt(item.trim().replaceFirst("(?i)^0x",""),16)));
                 type="hex";packet=hex.toString();break;
             }
-            case "rand":packet=range(settings.optString("noiseRand","1-8192"),"Размер шума",1,8192);break;
-            case "str":if(packet.isEmpty())throw new IllegalArgumentException("Пакет шума пуст");break;
-            case "hex":if(packet.isEmpty()||!packet.matches("(?i)([0-9a-f]{2})+"))throw new IllegalArgumentException("Пакет hex должен содержать целые байты");break;
+            case "rand":packet=range(settings.optString("noiseRand","1-8192"),L.t("Размер шума","Noise size"),1,8192);break;
+            case "str":if(packet.isEmpty())throw new IllegalArgumentException(L.t("Пакет шума пуст","Noise packet is empty"));break;
+            case "hex":if(packet.isEmpty()||!packet.matches("(?i)([0-9a-f]{2})+"))throw new IllegalArgumentException(L.t("Пакет hex должен содержать целые байты","A hex packet must contain whole bytes"));break;
             case "base64":{
-                if(packet.isEmpty())throw new IllegalArgumentException("Пакет шума пуст");
+                if(packet.isEmpty())throw new IllegalArgumentException(L.t("Пакет шума пуст","Noise packet is empty"));
                 try{String normal=packet.replace('-','+').replace('_','/');byte[] bytes=Base64.getDecoder().decode(normal);if(bytes.length==0)throw new IllegalArgumentException();packet=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);}
-                catch(IllegalArgumentException e){throw new IllegalArgumentException("Пакет шума не является корректным base64",e);}break;
+                catch(IllegalArgumentException e){throw new IllegalArgumentException(L.t("Пакет шума не является корректным base64","The noise packet is not valid base64"),e);}break;
             }
-            default:throw new IllegalArgumentException("Тип шума: array, rand, str, hex или base64");
+            default:throw new IllegalArgumentException(L.t("Тип шума: array, rand, str, hex или base64","Noise type: array, rand, str, hex or base64"));
         }
-        return Json.obj("type",type,"packet",packet,"delay",range(settings.optString("noiseDelay","10-16"),"Задержка шума",0,1000));
+        return Json.obj("type",type,"packet",packet,"delay",range(settings.optString("noiseDelay","10-16"),L.t("Задержка шума","Noise delay"),0,1000));
     }
 
     private static String range(String value,String name,long min,long max){return ConfigBuilder.range(value,name,min,max);}

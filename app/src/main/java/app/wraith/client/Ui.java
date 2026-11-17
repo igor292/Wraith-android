@@ -197,7 +197,7 @@ final class Ui {
         private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         private long changed=System.currentTimeMillis();
         private int drawn=-1;
-        Orb(Context c){super(c);setContentDescription("Подключить или отключить Wraith");setFocusable(true);setClickable(true);}
+        Orb(Context c){super(c);setContentDescription(L.t("Подключить или отключить Wraith","Connect or disconnect Wraith"));setFocusable(true);setClickable(true);}
         @Override public boolean onTouchEvent(android.view.MotionEvent e){
             if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)animate().scaleX(.95f).scaleY(.95f).setDuration(110).start();
             if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)

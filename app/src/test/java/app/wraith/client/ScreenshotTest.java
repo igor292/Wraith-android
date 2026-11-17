@@ -66,6 +66,7 @@ public class ScreenshotTest {
 
     @Test public void screens()throws Exception{
         if(System.getProperty("wraith.screens.enabled")==null&&System.getenv("WRAITH_SCREENS")==null)return;
+        String lang=System.getenv("WRAITH_SCREENS_LANG");if(lang!=null){java.util.Locale.setDefault(new java.util.Locale(lang));L.reset();}
         shoot("home-dark-connected",MainActivity.HOME,"",true,"dark",WraithService.CONNECTED);
         shoot("home-light-off",MainActivity.HOME,"",true,"light",WraithService.OFF);
         shoot("home-dark-empty",MainActivity.HOME,"",false,"dark",WraithService.OFF);

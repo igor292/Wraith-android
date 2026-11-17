@@ -45,14 +45,14 @@ public final class XrayProbeService extends VpnService {
                 if(session!=null){
                     cancelledSessions.add(session);
                     Iterator<Job> it=pending.iterator();while(it.hasNext()){
-                        Job job=it.next();if(session.equals(job.session)){it.remove();reply(job,-1,"Проверка отменена.");}
+                        Job job=it.next();if(session.equals(job.session)){it.remove();reply(job,-1,L.t("Проверка отменена.","Test cancelled."));}
                     }
                 }
             }else{
                 ResultReceiver receiver=receiver(intent);Messenger messenger=messenger(intent);
                 if(intent!=null&&ACTION.equals(intent.getAction())&&(receiver!=null||messenger!=null)){
                     Job job=new Job(intent,receiver,messenger);
-                    if(cancelledSessions.contains(job.session))reply(job,-1,"Проверка отменена.");else pending.add(job);
+                    if(cancelledSessions.contains(job.session))reply(job,-1,L.t("Проверка отменена.","Test cancelled."));else pending.add(job);
                 }
             }
             if(!draining&&!pending.isEmpty()){draining=true;worker.schedule(this::drain,120,TimeUnit.MILLISECONDS);}
@@ -83,7 +83,7 @@ public final class XrayProbeService extends VpnService {
             JSONObject runtime=runtimeProbeConfig(probing,ports);
             if(probing.isEmpty())return;
             JSONObject start=new JSONObject(xray.invoke(Json.obj("apiVersion",3,"method","runXray","payload",Json.obj("xrayJson",runtime.toString())).toString()));
-            if(!start.optBoolean("success"))throw new IllegalStateException(start.optString("error","Не удалось запустить Xray для проверки."));
+            if(!start.optBoolean("success"))throw new IllegalStateException(start.optString("error",L.t("Не удалось запустить Xray для проверки.","Could not start Xray for the test.")));
             startedCore=true;
             // runXray reports that the native core has started before all SOCKS listeners are
             // necessarily bound. Do not race the first HTTP probe against that async startup.
@@ -124,8 +124,8 @@ public final class XrayProbeService extends VpnService {
     static JSONObject appendProbe(JSONObject profile,JSONObject settings,JSONObject source,int index,int port,JSONArray outbounds,JSONArray inbounds,JSONArray rules)throws Exception{
         settings=Json.copy(settings);settings.put("pinCandidate",true);
         JSONObject root=XrayRuntimeConfig.prepare(profile,settings,source);
-        JSONArray sourceOutbounds=root.optJSONArray("outbounds");if(sourceOutbounds==null)throw new IllegalArgumentException("В конфигурации нет Xray outbounds.");
-        LinkedHashMap<String,JSONObject> byTag=new LinkedHashMap<>();for(JSONObject outbound:Json.objects(sourceOutbounds)){String tag=outbound.optString("tag");if(tag.isEmpty())continue;if(byTag.put(tag,outbound)!=null)throw new IllegalArgumentException("Повторяется outbound tag: "+tag);}
+        JSONArray sourceOutbounds=root.optJSONArray("outbounds");if(sourceOutbounds==null)throw new IllegalArgumentException(L.t("В конфигурации нет Xray outbounds.","The configuration has no Xray outbounds."));
+        LinkedHashMap<String,JSONObject> byTag=new LinkedHashMap<>();for(JSONObject outbound:Json.objects(sourceOutbounds)){String tag=outbound.optString("tag");if(tag.isEmpty())continue;if(byTag.put(tag,outbound)!=null)throw new IllegalArgumentException(L.t("Повторяется outbound tag: ","Duplicate outbound tag: ")+tag);}
         String selected=XrayRuntimeConfig.proxyTag(root,profile);LinkedHashSet<String> dependencies=new LinkedHashSet<>();collectDependencies(selected,byTag,dependencies,new HashSet<>());
         Map<String,String> renamed=new HashMap<>();int dependencyIndex=0;for(String tag:dependencies)renamed.put(tag,"wraith-probe-"+index+"-"+(dependencyIndex++));
         for(String tag:dependencies){JSONObject copy=Json.copy(byTag.get(tag));copy.put("tag",renamed.get(tag));JSONObject stream=copy.optJSONObject("streamSettings"),sockopt=stream==null?null:stream.optJSONObject("sockopt");if(sockopt!=null){String dependency=sockopt.optString("dialerProxy");if(!dependency.isEmpty())sockopt.put("dialerProxy",renamed.get(dependency));}JSONObject legacy=copy.optJSONObject("proxySettings");if(legacy!=null&&renamed.containsKey(legacy.optString("tag")))legacy.put("tag",renamed.get(legacy.optString("tag")));outbounds.put(copy);}
@@ -161,8 +161,8 @@ public final class XrayProbeService extends VpnService {
         return out;
     }
     private static void collectDependencies(String tag,Map<String,JSONObject> byTag,LinkedHashSet<String> ordered,Set<String> visiting)throws Exception{
-        if(ordered.contains(tag))return;if(!visiting.add(tag))throw new IllegalArgumentException("Циклическая зависимость Xray outbound: "+tag);
-        JSONObject outbound=byTag.get(tag);if(outbound==null)throw new IllegalArgumentException("Не найдена зависимость Xray outbound: "+tag);
+        if(ordered.contains(tag))return;if(!visiting.add(tag))throw new IllegalArgumentException(L.t("Циклическая зависимость Xray outbound: ","Circular Xray outbound dependency: ")+tag);
+        JSONObject outbound=byTag.get(tag);if(outbound==null)throw new IllegalArgumentException(L.t("Не найдена зависимость Xray outbound: ","Xray outbound dependency not found: ")+tag);
         JSONObject stream=outbound.optJSONObject("streamSettings"),sockopt=stream==null?null:stream.optJSONObject("sockopt");String dependency=sockopt==null?"":sockopt.optString("dialerProxy");if(!dependency.isEmpty())collectDependencies(dependency,byTag,ordered,visiting);
         visiting.remove(tag);ordered.add(tag);
     }
@@ -170,12 +170,12 @@ public final class XrayProbeService extends VpnService {
     private static void awaitLoopback(int port,int timeoutMs,java.util.function.BooleanSupplier cancelled)throws Exception{
         long deadline=SystemClock.elapsedRealtime()+Math.min(Math.max(timeoutMs,1000),5000);IOException last=null;
         while(SystemClock.elapsedRealtime()<deadline){
-            if(cancelled.getAsBoolean()||Thread.currentThread().isInterrupted())throw new InterruptedException("Проверка отменена.");
+            if(cancelled.getAsBoolean()||Thread.currentThread().isInterrupted())throw new InterruptedException(L.t("Проверка отменена.","Test cancelled."));
             try(java.net.Socket socket=new java.net.Socket()){
                 socket.connect(new java.net.InetSocketAddress("127.0.0.1",port),100);return;
             }catch(IOException e){last=e;Thread.sleep(20);}
         }
-        throw new IOException("Xray не открыл локальный SOCKS-вход для проверки.",last);
+        throw new IOException(L.t("Xray не открыл локальный SOCKS-вход для проверки.","Xray did not open the local SOCKS inbound for the test."),last);
     }
 
     private static ResultReceiver receiver(Intent intent){
@@ -203,11 +203,11 @@ public final class XrayProbeService extends VpnService {
         // libXray's pingBatch resolves and namespaces dialer/proxy dependencies itself. Retain the
         // complete graph and original tags so a fragment/noise dialer is never silently lost.
         JSONArray outbounds=root.optJSONArray("outbounds");
-        if(outbounds==null||outbounds.length()==0)throw new IllegalArgumentException("В конфигурации нет Xray-сервера.");
+        if(outbounds==null||outbounds.length()==0)throw new IllegalArgumentException(L.t("В конфигурации нет Xray-сервера.","The configuration has no Xray server."));
         return Json.obj("outbounds",new JSONArray(outbounds.toString()));
     }
     @Override public void onDestroy(){
-        synchronized(lock){closed=true;for(Job job:pending)reply(job,-1,"Проверка отменена.");pending.clear();}
+        synchronized(lock){closed=true;for(Job job:pending)reply(job,-1,L.t("Проверка отменена.","Test cancelled."));pending.clear();}
         worker.execute(()->{if(xray!=null)xray.resetDNS();});
         worker.shutdown(); // Let the bounded native batch close its instance before resetting DNS.
         super.onDestroy();

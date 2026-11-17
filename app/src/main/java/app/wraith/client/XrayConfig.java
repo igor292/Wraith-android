@@ -36,14 +36,14 @@ public final class XrayConfig {
         List<JSONObject> outbounds=Json.objects(root.optJSONArray("outbounds"));
         if(outbounds.isEmpty()){
             if(root.has("protocol"))return ImportParser.profile(root.optString("tag","Xray"),outbound(root),raw,false);
-            throw new IllegalArgumentException("В конфигурации Xray нет исходящих подключений.");
+            throw new IllegalArgumentException(L.t("В конфигурации Xray нет исходящих подключений.","The Xray configuration has no outbounds."));
         }
         List<JSONObject> proxies=new ArrayList<>();
         for(JSONObject o:outbounds){
             if(LOCAL_OUTBOUNDS.contains(o.optString("protocol").toLowerCase(Locale.ROOT)))continue;
             proxies.add(o);
         }
-        if(proxies.isEmpty())throw new IllegalArgumentException("В конфигурации Xray нет прокси-исходящего, только direct/block.");
+        if(proxies.isEmpty())throw new IllegalArgumentException(L.t("В конфигурации Xray нет прокси-исходящего, только direct/block.","The Xray configuration has no proxy outbound, only direct/block."));
         String baseName=str(root,"remarks","name");
         if(baseName.isEmpty())baseName="Xray";
         JSONObject routing=routing(root,baseName);
@@ -66,7 +66,7 @@ public final class XrayConfig {
                 descriptor.put("tag",tag);converted.add(descriptor);tags.add(tag);
             }
         }
-        if(converted.isEmpty())throw new IllegalArgumentException(errors.isEmpty()?"Нет поддерживаемых серверов в конфигурации Xray.":errors.get(0));
+        if(converted.isEmpty())throw new IllegalArgumentException(errors.isEmpty()?L.t("Нет поддерживаемых серверов в конфигурации Xray.","No supported servers in the Xray configuration."):errors.get(0));
         String name=baseName;
         JSONObject profile=ImportParser.profile(name,converted.get(0),raw,false);
         // Keep individual host data internal: it feeds one automatic outbound and one UI row.
@@ -140,16 +140,16 @@ public final class XrayConfig {
         switch(protocol){
             case "vless": case "vmess": {
                 JSONObject peer=firstOf(s,"vnext","servers");
-                if(peer==null)throw new IllegalArgumentException("В Xray-исходящем "+protocol+" нет блока vnext.");
+                if(peer==null)throw new IllegalArgumentException(L.t("В Xray-исходящем ","Xray outbound ")+protocol+L.t(" нет блока vnext."," has no vnext block."));
                 JSONObject user=firstOf(peer,"users");
-                if(user==null)throw new IllegalArgumentException("В Xray-исходящем "+protocol+" нет пользователя.");
+                if(user==null)throw new IllegalArgumentException(L.t("В Xray-исходящем ","Xray outbound ")+protocol+L.t(" нет пользователя."," has no user."));
                 o.put("type",protocol).put("server",host(peer)).put("server_port",port(peer)).put("uuid",str(user,"id","uuid","password"));
                 if(protocol.equals("vless")){
                     String encryption=str(user,"encryption");
-                    if(!encryption.isEmpty()&&!encryption.equals("none"))throw new IllegalArgumentException("VLESS encryption из Xray не поддерживается sing-box.");
+                    if(!encryption.isEmpty()&&!encryption.equals("none"))throw new IllegalArgumentException(L.t("VLESS encryption из Xray не поддерживается.","Xray VLESS encryption is not supported."));
                     String flow=str(user,"flow");
                     if(!flow.isEmpty()){
-                        if(!flow.equals("xtls-rprx-vision"))throw new IllegalArgumentException("Поток VLESS "+flow+" не поддерживается sing-box.");
+                        if(!flow.equals("xtls-rprx-vision"))throw new IllegalArgumentException(L.t("Поток VLESS ","VLESS flow ")+flow+L.t(" не поддерживается."," is not supported."));
                         o.put("flow",flow).put("packet_encoding","xudp");
                     }
                 }else{
@@ -161,19 +161,19 @@ public final class XrayConfig {
             }
             case "trojan": {
                 JSONObject peer=firstOf(s,"servers");
-                if(peer==null)throw new IllegalArgumentException("В Xray-исходящем trojan нет серверов.");
+                if(peer==null)throw new IllegalArgumentException(L.t("В Xray-исходящем trojan нет серверов.","The Xray trojan outbound has no servers."));
                 o.put("type","trojan").put("server",host(peer)).put("server_port",port(peer)).put("password",str(peer,"password"));
                 break;
             }
             case "shadowsocks": {
                 JSONObject peer=firstOf(s,"servers");
-                if(peer==null)throw new IllegalArgumentException("В Xray-исходящем shadowsocks нет серверов.");
+                if(peer==null)throw new IllegalArgumentException(L.t("В Xray-исходящем shadowsocks нет серверов.","The Xray shadowsocks outbound has no servers."));
                 o.put("type","shadowsocks").put("server",host(peer)).put("server_port",port(peer)).put("method",str(peer,"method")).put("password",str(peer,"password"));
                 break;
             }
             case "socks": case "http": {
                 JSONObject peer=firstOf(s,"servers");
-                if(peer==null)throw new IllegalArgumentException("В Xray-исходящем "+protocol+" нет серверов.");
+                if(peer==null)throw new IllegalArgumentException(L.t("В Xray-исходящем ","Xray outbound ")+protocol+L.t(" нет серверов."," has no servers."));
                 o.put("type",protocol).put("server",host(peer)).put("server_port",port(peer));
                 JSONObject user=firstOf(peer,"users");
                 if(user!=null){
@@ -186,8 +186,8 @@ public final class XrayConfig {
             case "hysteria": case "hysteria2": return hysteria(s,x.optJSONObject("streamSettings"));
             case "freedom": return Json.obj("type","direct");
             case "blackhole": return Json.obj("type","block");
-            case "": throw new IllegalArgumentException("В исходящем Xray не указан protocol.");
-            default: throw new IllegalArgumentException("Протокол Xray "+protocol+" не поддерживается sing-box.");
+            case "": throw new IllegalArgumentException(L.t("В исходящем Xray не указан protocol.","The Xray outbound has no protocol."));
+            default: throw new IllegalArgumentException(L.t("Протокол Xray ","Xray protocol ")+protocol+L.t(" не поддерживается."," is not supported."));
         }
         stream(o,x.optJSONObject("streamSettings"));
         return o;
@@ -202,9 +202,9 @@ public final class XrayConfig {
         JSONObject hs=st==null?null:st.optJSONObject("hysteriaSettings");
         if(hs==null)hs=new JSONObject();
         int version=s.optInt("version",hs.optInt("version",2));
-        if(version!=2)throw new IllegalArgumentException("Hysteria v1 из Xray не поддерживается, нужен Hysteria 2.");
+        if(version!=2)throw new IllegalArgumentException(L.t("Hysteria v1 из Xray не поддерживается, нужен Hysteria 2.","Xray Hysteria v1 is not supported, Hysteria 2 is required."));
         JSONObject peer=s.has("address")?s:firstOf(s,"servers","vnext");
-        if(peer==null)throw new IllegalArgumentException("В Xray-исходящем hysteria нет адреса сервера.");
+        if(peer==null)throw new IllegalArgumentException(L.t("В Xray-исходящем hysteria нет адреса сервера.","The Xray hysteria outbound has no server address."));
         String password=str(hs,"auth","password");
         if(password.isEmpty())password=str(s,"auth","password");
         JSONObject o=Json.obj("type","hysteria2","server",host(peer),"server_port",port(peer),"password",password);
@@ -259,9 +259,9 @@ public final class XrayConfig {
             // pinnedPeerCertSha256 is a hash of the complete DER certificate. They are
             // different values; never copy one into the other or silently weaken TLS.
             JSONArray certPins=t.optJSONArray("pinnedPeerCertSha256");
-            if(!omitNativeCertificatePin&&certPins!=null&&certPins.length()>0)throw new IllegalArgumentException("Этот сервер требует pinnedPeerCertSha256 (SHA-256 сертификата). Встроенное ядро sing-box 1.14.1 не поддерживает такой pin; подключение остановлено, чтобы не отключать проверку TLS.");
+            if(!omitNativeCertificatePin&&certPins!=null&&certPins.length()>0)throw new IllegalArgumentException(L.t("Этот сервер требует pinnedPeerCertSha256 (SHA-256 сертификата). Встроенное ядро sing-box 1.14.1 не поддерживает такой pin; подключение остановлено, чтобы не отключать проверку TLS.","This server requires pinnedPeerCertSha256 (certificate SHA-256), which is not supported here; the connection was stopped so TLS checks stay on."));
             String certPin=str(t,"pinnedPeerCertSha256");
-            if(!omitNativeCertificatePin&&!certPin.isEmpty())throw new IllegalArgumentException("Этот сервер требует pinnedPeerCertSha256 (SHA-256 сертификата). Встроенное ядро sing-box 1.14.1 не поддерживает такой pin; подключение остановлено, чтобы не отключать проверку TLS.");
+            if(!omitNativeCertificatePin&&!certPin.isEmpty())throw new IllegalArgumentException(L.t("Этот сервер требует pinnedPeerCertSha256 (SHA-256 сертификата). Встроенное ядро sing-box 1.14.1 не поддерживает такой pin; подключение остановлено, чтобы не отключать проверку TLS.","This server requires pinnedPeerCertSha256 (certificate SHA-256), which is not supported here; the connection was stopped so TLS checks stay on."));
             JSONArray alpn=t.optJSONArray("alpn");
             if(alpn!=null&&alpn.length()>0)tls.put("alpn",new JSONArray(alpn.toString()));
             String fp=str(t,"fingerprint","fp");
@@ -273,7 +273,7 @@ public final class XrayConfig {
             case "": case "tcp": case "raw": {
                 JSONObject raw=st.optJSONObject("tcpSettings")==null?st.optJSONObject("rawSettings"):st.optJSONObject("tcpSettings");
                 JSONObject header=raw==null?null:raw.optJSONObject("header");
-                if(header!=null&&!header.optString("type","none").equals("none"))throw new IllegalArgumentException("Маскировка TCP HTTP из Xray не поддерживается sing-box.");
+                if(header!=null&&!header.optString("type","none").equals("none"))throw new IllegalArgumentException(L.t("Маскировка TCP HTTP из Xray не поддерживается.","Xray TCP HTTP masking is not supported."));
                 return;
             }
             case "ws": {
@@ -322,7 +322,7 @@ public final class XrayConfig {
                 o.put("transport",t);
                 return;
             }
-            default: throw new IllegalArgumentException("Транспорт Xray "+network+" не поддерживается sing-box. Запросите TCP, WS, gRPC, HTTP/2 или HTTPUpgrade.");
+            default: throw new IllegalArgumentException(L.t("Транспорт Xray ","Xray transport ")+network+L.t(" не поддерживается. Запросите TCP, WS, gRPC, HTTP/2 или HTTPUpgrade."," is not supported. Ask for TCP, WS, gRPC, HTTP/2 or HTTPUpgrade."));
         }
     }
 
@@ -393,7 +393,7 @@ public final class XrayConfig {
     static int port(JSONObject peer)throws Exception{
         Object value=peer.opt("port");
         int port=value instanceof Number?((Number)value).intValue():value==null?0:Integer.parseInt(String.valueOf(value).trim());
-        if(port<1||port>65535)throw new IllegalArgumentException("Некорректный порт в конфигурации Xray.");
+        if(port<1||port>65535)throw new IllegalArgumentException(L.t("Некорректный порт в конфигурации Xray.","Invalid port in the Xray configuration."));
         return port;
     }
     static JSONObject firstOf(JSONObject holder,String... keys){

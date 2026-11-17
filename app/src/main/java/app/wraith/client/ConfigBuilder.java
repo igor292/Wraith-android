@@ -21,7 +21,7 @@ public final class ConfigBuilder {
         JSONObject settings=state.getJSONObject("settings");JSONObject chosen=null;
         List<JSONObject> profiles=Json.objects(state.getJSONArray("profiles"));
         for(JSONObject p:profiles)if(p.optString("id").equals(state.optString("selected")))chosen=p;
-        if(chosen==null)throw new IllegalArgumentException("Сначала добавьте и выберите сервер.");
+        if(chosen==null)throw new IllegalArgumentException(L.t("Сначала добавьте и выберите сервер.","Add and select a server first."));
         JSONObject config;
         if(chosen.optBoolean("full")) {
             config=Json.copy(chosen.getJSONObject("outbound"));
@@ -57,7 +57,7 @@ public final class ConfigBuilder {
                     String tag=tagOf(p);outbounds.put(configuredOutbound(p.getJSONObject("outbound"),p,settings,tag));tags.put(tag);
                 }
             }
-            if(tags.length()==0)throw new IllegalArgumentException("Нет ни одного отдельного сервера для подключения.");
+            if(tags.length()==0)throw new IllegalArgumentException(L.t("Нет ни одного отдельного сервера для подключения.","There is no single server to connect to."));
             JSONArray selections=new JSONArray(tags.toString());
             // The urltest group probes every node on a timer, so it only exists when the user asked for it.
             if(autoSelect){
@@ -80,7 +80,7 @@ public final class ConfigBuilder {
                 String kind=user.optString("kind","domain_suffix"),value=user.optString("value").trim();
                 JSONObject r=new JSONObject();
                 if(kind.equals("rule_set")) {
-                    URI uri=URI.create(value);if(!"https".equals(uri.getScheme()))throw new IllegalArgumentException("Набор правил должен загружаться по HTTPS.");
+                    URI uri=URI.create(value);if(!"https".equals(uri.getScheme()))throw new IllegalArgumentException(L.t("Набор правил должен загружаться по HTTPS.","A rule set must be downloaded over HTTPS."));
                     String tag="rules-"+ruleSets.length();ruleSets.put(Json.obj("type","remote","tag",tag,"format",value.split("\\?")[0].endsWith(".json")?"source":"binary","url",value,"download_detour","direct","update_interval","24h"));r.put("rule_set",Json.arr(tag));
                 } else if(kind.equals("geosite")||kind.equals("geoip")) {
                     // Xray geodata names are not sing-box rules; they map to the published .srs rule sets.
@@ -98,9 +98,9 @@ public final class ConfigBuilder {
                     r.put("ip_is_private",true);
                 } else {
                     if(kind.startsWith("xray_"))continue; // legacy placeholder from earlier builds
-                    if(!DOMAIN_KINDS.contains(kind))throw new IllegalArgumentException("Неизвестный тип правила: "+kind);
+                    if(!DOMAIN_KINDS.contains(kind))throw new IllegalArgumentException(L.t("Неизвестный тип правила: ","Unknown rule type: ")+kind);
                     JSONArray a=new JSONArray();for(String item:split(value,kind))a.put(item);
-                    if(a.length()==0)throw new IllegalArgumentException("Пустое правило.");r.put(kind,a);
+                    if(a.length()==0)throw new IllegalArgumentException(L.t("Пустое правило.","Empty rule."));r.put(kind,a);
                 }
                 ports(r,user.optString("port"));
                 String network=user.optString("network").trim();
@@ -157,15 +157,15 @@ public final class ConfigBuilder {
      */
     static String geoName(String kind,String raw){
         String geo=raw.trim().toLowerCase(Locale.ROOT);
-        if(geo.startsWith("!")){AppLog.add("Правило "+kind+":"+raw+" пропущено: отрицание geo-списков не переводится в sing-box.");return "";}
-        if(!geo.matches("[a-z0-9._-]+")){AppLog.add("Правило "+kind+":"+raw+" пропущено: недопустимое имя geo-списка.");return "";}
+        if(geo.startsWith("!")){AppLog.add(L.t("Правило ","Rule ")+kind+":"+raw+L.t(" пропущено: отрицание geo-списков не поддерживается."," skipped: negated geo lists are not supported."));return "";}
+        if(!geo.matches("[a-z0-9._-]+")){AppLog.add(L.t("Правило ","Rule ")+kind+":"+raw+L.t(" пропущено: недопустимое имя geo-списка."," skipped: invalid geo list name."));return "";}
         if(kind.equals("geosite")){
             if(geo.equals("ads")||geo.equals("ads-all")||geo.equals("category-ads"))return "category-ads-all";
             return geo;
         }
         // sing-geoip publishes country codes plus "private"; provider lists are not there.
         if(geo.matches("[a-z]{2}"))return geo;
-        AppLog.add("Правило geoip:"+raw+" пропущено: наборы geoip sing-box существуют только для кодов стран.");
+        AppLog.add(L.t("Правило geoip:","Rule geoip:")+raw+L.t(" пропущено: наборы geoip существуют только для кодов стран."," skipped: geoip sets exist only for country codes."));
         return "";
     }
     /**
@@ -207,7 +207,7 @@ public final class ConfigBuilder {
         if(settings.optBoolean("noise"))o.put("wraith_noise",Json.arr(wraithNoise(settings)));
         if(settings.optBoolean("fragment")&&!xrayFragment&&fragmentable){
             JSONObject tls=o.getJSONObject("tls");tls.put("fragment",true);
-            int delay=settings.optInt("fragmentDelay",10);if(delay<0||delay>1000)throw new IllegalArgumentException("Задержка фрагментации должна быть от 0 до 1000 мс.");
+            int delay=settings.optInt("fragmentDelay",10);if(delay<0||delay>1000)throw new IllegalArgumentException(L.t("Задержка фрагментации должна быть от 0 до 1000 мс.","Fragment delay must be from 0 to 1000 ms."));
             tls.put("fragment_fallback_delay",delay+"ms");
         }
         if(settings.optBoolean("recordFragment")&&fragmentable)o.getJSONObject("tls").put("record_fragment",true);
@@ -233,7 +233,7 @@ public final class ConfigBuilder {
         if(ranges.length()>0)rule.put("port_range",ranges);
     }
     public static JSONObject probeConfig(JSONObject profile,JSONObject settings)throws Exception{
-        if(profile.optBoolean("full"))throw new IllegalArgumentException("Для проверки выберите отдельный сервер");
+        if(profile.optBoolean("full"))throw new IllegalArgumentException(L.t("Для проверки выберите отдельный сервер","Select a single server to test"));
         JSONObject state=Json.obj("profiles",Json.arr(profile),"selected",profile.getString("id"),"settings",settings,"rules",new JSONArray());
         JSONObject config=build(state,"","");String tag=selectorTag(profile);
         if(profile.optJSONArray("xrayCandidates")==null){
@@ -248,45 +248,45 @@ public final class ConfigBuilder {
     /** "a-b" or "a" with non-negative integers, as Happ writes its ranges. */
     static String range(String value,String name,long min,long max){
         String v=value==null?"":value.trim().replace(" ","");
-        if(!v.matches("[0-9]+(-[0-9]+)?"))throw new IllegalArgumentException(name+": укажите число или диапазон вида 10-20");
+        if(!v.matches("[0-9]+(-[0-9]+)?"))throw new IllegalArgumentException(name+L.t(": укажите число или диапазон вида 10-20",": enter a number or a range like 10-20"));
         String[] p=v.split("-");long a=Long.parseLong(p[0]),b=p.length>1?Long.parseLong(p[1]):a;
-        if(a<min||b>max||b<a)throw new IllegalArgumentException(name+": допустимо "+min+"–"+max);
+        if(a<min||b>max||b<a)throw new IllegalArgumentException(name+L.t(": допустимо ",": allowed ")+min+"–"+max);
         return v;
     }
     /** Happ's Xray fragmentation block → wraith_fragment dialer option. */
     static JSONObject wraithFragment(JSONObject s)throws Exception{
         String packets=s.optString("fragmentPackets","tlshello");
-        if(!packets.equals("tlshello"))range(packets,"Фрагментирование пакетов",1,100);
-        JSONObject f=Json.obj("packets",packets,"length",range(s.optString("fragmentLength","50-100"),"Длина фрагмента",1,16384),"interval",range(s.optString("fragmentInterval","10-20"),"Задержка фрагмента",0,1000));
+        if(!packets.equals("tlshello"))range(packets,L.t("Фрагментирование пакетов","Packet fragmentation"),1,100);
+        JSONObject f=Json.obj("packets",packets,"length",range(s.optString("fragmentLength","50-100"),L.t("Длина фрагмента","Fragment length"),1,16384),"interval",range(s.optString("fragmentInterval","10-20"),L.t("Задержка фрагмента","Fragment delay"),0,1000));
         String split=s.optString("fragmentMaxSplit","").trim();
-        if(!split.isEmpty())f.put("max_split",range(split,"Максимальное разделение",1,10000));
+        if(!split.isEmpty())f.put("max_split",range(split,L.t("Максимальное разделение","Maximum split"),1,10000));
         return f;
     }
     /** Happ's noise block → one wraith_noise entry (UDP only: Hysteria, TUIC, QUIC). */
     static JSONObject wraithNoise(JSONObject s)throws Exception{
         String type=s.optString("noiseType","array");
-        if(!Set.of("array","rand","str","base64").contains(type))throw new IllegalArgumentException("Тип шума: array, rand, str или base64");
-        JSONObject n=Json.obj("type",type,"delay",range(s.optString("noiseDelay","10-16"),"Задержка шума",0,1000));
+        if(!Set.of("array","rand","str","base64").contains(type))throw new IllegalArgumentException(L.t("Тип шума: array, rand, str или base64","Noise type: array, rand, str or base64"));
+        JSONObject n=Json.obj("type",type,"delay",range(s.optString("noiseDelay","10-16"),L.t("Задержка шума","Noise delay"),0,1000));
         if(type.equals("rand"))n.put("rand",range(s.optString("noiseRand","1-8192"),"Rand",1,8192)).put("rand_range",range(s.optString("noiseRange","0-255"),"RandRange",0,255));
         else{
             String packet=s.optString("noisePacket","1A,2B,3C").trim();
-            if(packet.isEmpty())throw new IllegalArgumentException("Пакет шума пуст");
-            if(type.equals("array")&&!packet.matches("(?i)\\s*(0x)?[0-9a-f]{1,2}(\\s*,\\s*(0x)?[0-9a-f]{1,2})*\\s*"))throw new IllegalArgumentException("Пакет array: байты в hex через запятую, например 1A,2B,3C");
+            if(packet.isEmpty())throw new IllegalArgumentException(L.t("Пакет шума пуст","Noise packet is empty"));
+            if(type.equals("array")&&!packet.matches("(?i)\\s*(0x)?[0-9a-f]{1,2}(\\s*,\\s*(0x)?[0-9a-f]{1,2})*\\s*"))throw new IllegalArgumentException(L.t("Пакет array: байты в hex через запятую, например 1A,2B,3C","array packet: hex bytes separated by commas, e.g. 1A,2B,3C"));
             n.put("packet",packet);
         }
         return n;
     }
     static JSONObject multiplex(JSONObject settings)throws Exception{
-        String protocol=settings.optString("muxProtocol","h2mux");if(!Set.of("h2mux","smux","yamux").contains(protocol))throw new IllegalArgumentException("Протокол мультиплексора должен быть h2mux, smux или yamux. XUDP из Xray не поддерживается sing-box.");
-        boolean streams=settings.optString("muxLimit","connections").equals("streams");int value=settings.optInt(streams?"muxStreams":"muxConnections",streams?8:4);if(value<1||value>1024)throw new IllegalArgumentException("Ограничение мультиплексора: 1–1024");
+        String protocol=settings.optString("muxProtocol","h2mux");if(!Set.of("h2mux","smux","yamux").contains(protocol))throw new IllegalArgumentException(L.t("Протокол мультиплексора должен быть h2mux, smux или yamux. XUDP из Xray не поддерживается.","Multiplexer protocol must be h2mux, smux or yamux. Xray XUDP is not supported."));
+        boolean streams=settings.optString("muxLimit","connections").equals("streams");int value=settings.optInt(streams?"muxStreams":"muxConnections",streams?8:4);if(value<1||value>1024)throw new IllegalArgumentException(L.t("Ограничение мультиплексора: 1–1024","Multiplexer limit: 1–1024"));
         return Json.obj("enabled",true,"protocol",protocol,streams?"max_streams":"max_connections",value,"padding",settings.optBoolean("muxPadding",true));
     }
     static JSONArray inbounds(JSONObject s)throws Exception{
-        int mtu=s.optInt("mtu",1500);if(mtu<1280||mtu>9000)throw new IllegalArgumentException("MTU должен быть от 1280 до 9000.");
+        int mtu=s.optInt("mtu",1500);if(mtu<1280||mtu>9000)throw new IllegalArgumentException(L.t("MTU должен быть от 1280 до 9000.","MTU must be between 1280 and 9000."));
         JSONArray addresses=Json.arr("172.19.0.1/30");
         // Always capture IPv6. When disabled it is rejected, preventing bypass via IPv6.
         addresses.put("fdfe:dcba:9876::1/126");
-        String stack=s.optString("tunStack","mixed");if(!Set.of("mixed","system","gvisor").contains(stack))throw new IllegalArgumentException("Неизвестный стек TUN: "+stack);
+        String stack=s.optString("tunStack","mixed");if(!Set.of("mixed","system","gvisor").contains(stack))throw new IllegalArgumentException(L.t("Неизвестный стек TUN: ","Unknown TUN stack: ")+stack);
         JSONObject tun=Json.obj("type","tun","tag","tun-in","address",addresses,"mtu",mtu,"auto_route",true,"strict_route",true,"stack",stack,"dns_mode","hijack");
         // "Исключённые маршруты": subnets left out of the TUN entirely, like Happ's Exclude Routes.
         JSONArray excluded=new JSONArray();for(String line:s.optString("excludedRoutes").split("\n")){String c=line.trim();if(!c.isEmpty())excluded.put(c);}
@@ -295,7 +295,7 @@ public final class ConfigBuilder {
         if(s.optBoolean("localProxy",false)) {
             JSONObject mixed=Json.obj("type","mixed","tag","mixed-in","listen",s.optBoolean("allowLan")?"0.0.0.0":"127.0.0.1","listen_port",s.optInt("proxyPort",2081));
             if(s.optBoolean("allowLan")) {
-                String password=s.optString("proxyPassword");if(password.length()<8)throw new IllegalArgumentException("Для доступа из LAN задайте пароль прокси не короче 8 символов.");
+                String password=s.optString("proxyPassword");if(password.length()<8)throw new IllegalArgumentException(L.t("Для доступа из LAN задайте пароль прокси не короче 8 символов.","For LAN access set a proxy password of at least 8 characters."));
                 mixed.put("users",Json.arr(Json.obj("username","wraith","password",password)));
             }
             in.put(mixed);
@@ -378,10 +378,10 @@ public final class ConfigBuilder {
     static JSONObject server(String tag,String address,String fallback,String pinnedIp)throws Exception{
         String value=address==null?"":address.trim();
         if(value.isEmpty())value=fallback;
-        if(value.isEmpty())throw new IllegalArgumentException("Не указан адрес DNS-сервера.");
+        if(value.isEmpty())throw new IllegalArgumentException(L.t("Не указан адрес DNS-сервера.","DNS server address is missing."));
         if(value.startsWith("https://")||value.startsWith("h3://")||value.startsWith("tls://")||value.startsWith("quic://")||value.startsWith("tcp://")||value.startsWith("udp://")){
             URI u=new URI(value);
-            if(u.getHost()==null)throw new IllegalArgumentException("Некорректный адрес DNS: "+value);
+            if(u.getHost()==null)throw new IllegalArgumentException(L.t("Некорректный адрес DNS: ","Invalid DNS address: ")+value);
             String scheme=u.getScheme();
             String type=scheme.equals("https")?"https":scheme.equals("h3")?"h3":scheme.equals("tls")?"tls":scheme.equals("quic")?"quic":scheme;
             String host=u.getHost();
@@ -396,7 +396,7 @@ public final class ConfigBuilder {
         if(value.equalsIgnoreCase("localhost")||value.equals("local"))return Json.obj("type","local","tag",tag);
         if(value.matches("[0-9a-fA-F:.]+")&&value.matches(".*[.:].*"))return Json.obj("type","udp","tag",tag,"server",value);
         if(value.matches("[A-Za-z0-9.-]+"))return Json.obj("type","udp","tag",tag,"server",value,"domain_resolver","bootstrap");
-        throw new IllegalArgumentException("DNS: используйте URL (https/tls/quic), имя хоста или IP-адрес. Получено: "+value);
+        throw new IllegalArgumentException(L.t("DNS: используйте URL (https/tls/quic), имя хоста или IP-адрес. Получено: ","DNS: use a URL (https/tls/quic), a host name or an IP address. Got: ")+value);
     }
     /** Xray queryStrategy / domainStrategy → sing-box DNS strategy. */
     static String strategy(JSONObject routing){

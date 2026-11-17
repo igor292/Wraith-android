@@ -23,7 +23,7 @@ public final class ImportParser {
         String v=s.replaceAll("\\s","").replace('-','+').replace('_','/');
         int cut=v.indexOf('=');
         if(cut>=0)v=v.substring(0,cut);
-        if(v.isEmpty())throw new IllegalArgumentException("Пустые данные Base64.");
+        if(v.isEmpty())throw new IllegalArgumentException(L.t("Пустые данные Base64.","Empty Base64 data."));
         StringBuilder padded=new StringBuilder(v);
         while(padded.length()%4!=0)padded.append('=');
         return new String(Base64.getMimeDecoder().decode(padded.toString()),StandardCharsets.UTF_8);
@@ -31,7 +31,7 @@ public final class ImportParser {
     public static String unwrap(String input) {
         String s=input.trim();
         if(s.startsWith("happ://crypt")||s.startsWith("happ://limited")||s.startsWith("happ://hwid"))
-            throw new IllegalArgumentException("Эта ссылка зашифрована сторонним клиентом. Нужна обычная ссылка подписки от провайдера.");
+            throw new IllegalArgumentException(L.t("Эта ссылка зашифрована сторонним клиентом. Нужна обычная ссылка подписки от провайдера.","This link is encrypted for another client. Ask your provider for a regular subscription link."));
         for(String prefix:List.of("happ://add/","wraith://add/","wraith://import/"))
             if(s.startsWith(prefix)) { s=s.substring(prefix.length()); if(!s.startsWith("https://")&&!s.startsWith("http://")) s=decode(s); break; }
         if(s.startsWith("clash://")||s.startsWith("sing-box://import-remote-profile?")) {
@@ -55,36 +55,28 @@ public final class ImportParser {
      */
     public static List<JSONObject> parse(String raw,List<String> skipped) throws Exception {
         String s=raw.trim().replace("\uFEFF","");
-        if(s.isEmpty()) throw new IllegalArgumentException("Вставьте ссылку или конфигурацию.");
+        if(s.isEmpty()) throw new IllegalArgumentException(L.t("Вставьте ссылку или конфигурацию.","Paste a link or a configuration."));
         List<JSONObject> results=new ArrayList<>();
         if(s.startsWith("{")) {
             JSONObject o=new JSONObject(s);
             // One provider JSON document is one visible profile. Its proxy candidates stay internal.
             if(XrayConfig.looksLike(o)) { JSONObject p=XrayConfig.profile(o,s);p.put("jsonSource",true);results.add(p);return results; }
-            if(o.has("outbounds")) {
-                // A complete sing-box config remains intact; it is validated by the core before start.
-                JSONObject p=profile(str(o,"name","tag","remarks","JSON-конфигурация"),o,"",true);
-                String description=describe(XrayConfig.str(o.optJSONObject("meta")==null?new JSONObject():o.getJSONObject("meta"),"serverDescription"));
-                if(!description.isEmpty())p.put("description",description);
-                p.put("jsonSource",true);
-                results.add(p); return results;
-            }
-            if(TYPES.contains(o.optString("type"))) { JSONObject p=profile(str(o,"tag","name","Сервер"),o,"",false);p.put("jsonSource",true);results.add(p);return results; }
-            throw new IllegalArgumentException("Ожидается конфигурация sing-box или Xray с исходящими подключениями.");
+            if(o.has("outbounds"))throw new IllegalArgumentException(L.t("JSON sing-box не поддерживается: нужна конфигурация Xray.","sing-box JSON is not supported: an Xray configuration is required."));
+            if(o.has("type"))throw new IllegalArgumentException(L.t("JSON sing-box не поддерживается: нужна конфигурация Xray.","sing-box JSON is not supported: an Xray configuration is required."));
+            throw new IllegalArgumentException(L.t("Это не конфигурация Xray.","This is not an Xray configuration."));
         }
         if(s.startsWith("[")) {
             JSONArray a=new JSONArray(s);
             for(JSONObject o:Json.objects(a)) {
                 try {
                     if(XrayConfig.looksLike(o)) { JSONObject p=XrayConfig.profile(o,o.toString());p.put("jsonSource",true);results.add(p);continue; }
-                    boolean full=o.has("outbounds");
-                    if(!full&&!TYPES.contains(o.optString("type")))throw new IllegalArgumentException("Неизвестный протокол: "+o.optString("type","(нет)"));
-                    JSONObject p=profile(str(o,"tag","name","remarks","Сервер"),o,"",full);p.put("jsonSource",true);results.add(p);
+                    if(o.has("outbounds")||o.has("type"))throw new IllegalArgumentException(L.t("JSON sing-box не поддерживается: нужна конфигурация Xray.","sing-box JSON is not supported: an Xray configuration is required."));
+                    throw new IllegalArgumentException(L.t("Это не конфигурация Xray.","This is not an Xray configuration."));
                 } catch(Exception e) { skipped.add(Subscriptions.safeError(e)); }
             }
         } else {
             if(!s.contains("://")) {
-                try { s=base64(s); } catch(Exception e) { throw new IllegalArgumentException("Не удалось распознать ссылку или Base64-подписку."); }
+                try { s=base64(s); } catch(Exception e) { throw new IllegalArgumentException(L.t("Не удалось распознать ссылку или Base64-подписку.","Could not recognise the link or Base64 subscription.")); }
                 if(s.trim().startsWith("{")||s.trim().startsWith("[")) return parse(s,skipped);
             }
             String routingLink="";
@@ -100,8 +92,8 @@ public final class ImportParser {
             attachRouting(results,routingLink);
         }
         if(results.isEmpty()) {
-            if(!skipped.isEmpty())throw new IllegalArgumentException("Ни одна строка не поддерживается ("+skipped.size()+"). "+skipped.get(0));
-            throw new IllegalArgumentException("В подписке не найдено серверов поддерживаемого формата.");
+            if(!skipped.isEmpty())throw new IllegalArgumentException(L.t("Ни одна строка не поддерживается (","No line is supported (")+skipped.size()+"). "+skipped.get(0));
+            throw new IllegalArgumentException(L.t("В подписке не найдено серверов поддерживаемого формата.","No servers in a supported format were found in the subscription."));
         }
         return results;
     }
@@ -115,10 +107,10 @@ public final class ImportParser {
         try {
             JSONObject routing=RoutingConfig.decode(link);
             for(JSONObject p:results)if(!p.optBoolean("full"))p.put("routing",routing);
-        } catch(Exception e) { AppLog.add("Профиль маршрутизации из импорта не разобран: "+Subscriptions.safeError(e)); }
+        } catch(Exception e) { AppLog.add(L.t("Профиль маршрутизации из импорта не разобран: ","Routing profile from the import could not be parsed: ")+Subscriptions.safeError(e)); }
     }
     static JSONObject profile(String name,JSONObject outbound,String raw,boolean full) throws JSONException {
-        return Json.obj("id",UUID.randomUUID().toString(),"name",name.isEmpty()?"Сервер":name,"outbound",outbound,"source",raw,"full",full,"group","","latency",-1,"favorite",false);
+        return Json.obj("id",UUID.randomUUID().toString(),"name",name.isEmpty()?L.t("Сервер","Server"):name,"outbound",outbound,"source",raw,"full",full,"group","","latency",-1,"favorite",false);
     }
     /**
      * Provider caption shown under the server name instead of the protocol.
@@ -158,7 +150,7 @@ public final class ImportParser {
     static Link split(String text) {
         Link l=new Link();
         int mark=text.indexOf("://");
-        if(mark<0)throw new IllegalArgumentException("Это не ссылка подключения.");
+        if(mark<0)throw new IllegalArgumentException(L.t("Это не ссылка подключения.","This is not a connection link."));
         l.scheme=text.substring(0,mark).toLowerCase(Locale.ROOT);
         String rest=text.substring(mark+3);
         int hash=rest.indexOf('#');
@@ -181,7 +173,7 @@ public final class ImportParser {
         if(at>=0){l.userInfo=rest.substring(0,at);rest=rest.substring(at+1);}
         if(rest.startsWith("[")){
             int close=rest.indexOf(']');
-            if(close<0)throw new IllegalArgumentException("Незакрытый IPv6-адрес в ссылке.");
+            if(close<0)throw new IllegalArgumentException(L.t("Незакрытый IPv6-адрес в ссылке.","Unclosed IPv6 address in the link."));
             l.host=rest.substring(1,close);
             String tail=rest.substring(close+1);
             if(tail.startsWith(":"))l.port=number(tail.substring(1));
@@ -196,13 +188,13 @@ public final class ImportParser {
             }
             else l.host=rest;
         }
-        if(l.host.trim().isEmpty())throw new IllegalArgumentException("В ссылке отсутствует адрес сервера.");
+        if(l.host.trim().isEmpty())throw new IllegalArgumentException(L.t("В ссылке отсутствует адрес сервера.","The link has no server address."));
         l.host=l.host.trim();
         return l;
     }
     private static int number(String value){
         try{ return Integer.parseInt(value.trim()); }
-        catch(NumberFormatException e){ throw new IllegalArgumentException("Некорректный порт в ссылке: "+value); }
+        catch(NumberFormatException e){ throw new IllegalArgumentException(L.t("Некорректный порт в ссылке: ","Invalid port in the link: ")+value); }
     }
 
     /** Happ also passes socks/http credentials base64-encoded instead of as user:pass. */
@@ -227,29 +219,32 @@ public final class ImportParser {
         scheme=l.scheme;
         if(scheme.equals("hy2")) scheme="hysteria2";
         if(scheme.equals("socks5")||scheme.equals("socks4")) scheme="socks";
-        if(!TYPES.contains(scheme)) throw new IllegalArgumentException("Неизвестный протокол: "+scheme);
+        if(!TYPES.contains(scheme)) throw new IllegalArgumentException(L.t("Неизвестный протокол: ","Unknown protocol: ")+scheme);
+        if(Set.of("tuic","anytls","ssh","hysteria").contains(scheme)) throw new IllegalArgumentException(scheme.toUpperCase(Locale.ROOT)+L.t(" не поддерживается Xray."," is not supported by Xray."));
+        if(scheme.equals("hysteria2")&&!first(l.query,"","obfs").isEmpty()) throw new IllegalArgumentException(L.t("Hysteria2 с obfs не поддерживается Xray.","Hysteria2 with obfs is not supported by Xray."));
         Map<String,String> q=l.query;
         if(l.port<1) l.port=defaultPort(scheme,q);
-        if(l.port<1||l.port>65535) throw new IllegalArgumentException("В ссылке отсутствует или некорректен порт сервера.");
+        if(l.port<1||l.port>65535) throw new IllegalArgumentException(L.t("В ссылке отсутствует или некорректен порт сервера.","The link has a missing or invalid server port."));
         String auth=decode(l.userInfo);
         JSONObject o=Json.obj("type",scheme,"server",l.host,"server_port",l.port);
         switch(scheme) {
             case "vless": {
-                if(auth.isEmpty())throw new IllegalArgumentException("В ссылке VLESS нет UUID.");
+                if(auth.isEmpty())throw new IllegalArgumentException(L.t("В ссылке VLESS нет UUID.","The VLESS link has no UUID."));
                 o.put("uuid",auth);
                 String encryption=first(q,"none","encryption");
-                if(!encryption.equals("none")) throw new IllegalArgumentException("VLESS encryption из Xray не поддерживается этой сборкой.");
+                if(!encryption.equals("none")) throw new IllegalArgumentException(L.t("VLESS encryption из Xray не поддерживается этой сборкой.","Xray VLESS encryption is not supported by this build."));
                 String flow=first(q,"","flow");
                 if(!flow.isEmpty()){
-                    if(!flow.equals("xtls-rprx-vision")) throw new IllegalArgumentException("Поток VLESS "+flow+" не поддерживается sing-box.");
+                    if(!flow.equals("xtls-rprx-vision")) throw new IllegalArgumentException(L.t("Поток VLESS ","VLESS flow ")+flow+L.t(" не поддерживается."," is not supported."));
                     o.put("flow",flow).put("packet_encoding","xudp");
                 }
                 break;
             }
             case "trojan": case "anytls": case "hysteria2": o.put("password",auth); break;
             case "socks": case "http": { String credentials=credentials(auth);String[] pair=credentials.split(":",2);if(!credentials.isEmpty()){o.put("username",pair[0]);o.put("password",pair.length>1?pair[1]:"");} if(scheme.equals("socks")) o.put("version",text.startsWith("socks4://")?"4":"5"); break; }
-            case "tuic": { String[] pair=auth.split(":",2);if(pair.length!=2) throw new IllegalArgumentException("TUIC требует UUID и пароль.");o.put("uuid",pair[0]);o.put("password",pair[1]);o.put("congestion_control",first(q,"bbr","congestion_control"));break; }
-            default: throw new IllegalArgumentException("Для "+scheme+" используйте JSON sing-box.");
+            case "tuic": { String[] pair=auth.split(":",2);if(pair.length!=2) throw new IllegalArgumentException(L.t("TUIC требует UUID и пароль.","TUIC needs a UUID and a password."));o.put("uuid",pair[0]);o.put("password",pair[1]);o.put("congestion_control",first(q,"bbr","congestion_control"));break; }
+            case "wireguard": o.put("private_key",auth); o.put("peer_public_key",first(q,"","publickey","publicKey","public_key")); { JSONObject p=profile(l.fragment.isEmpty()?l.host:l.fragment,o,text,false); if(!l.description.isEmpty())p.put("description",l.description); return p; }
+            default: throw new IllegalArgumentException(scheme+L.t(" не поддерживается Xray."," is not supported by Xray."));
         }
         boolean secure=Set.of("trojan","anytls","hysteria2","tuic").contains(scheme)||Set.of("tls","reality","xtls","utls").contains(first(q,"","security"));
         if(secure) o.put("tls",tls(q,l.host));
@@ -337,7 +332,7 @@ public final class ImportParser {
     static void transport(JSONObject o,String type,Map<String,String> q) throws JSONException {
         type=type==null?"":type.trim().toLowerCase(Locale.ROOT);
         if(type.isEmpty()||type.equals("tcp")||type.equals("raw")||type.equals("none")) {
-            if(!q.getOrDefault("headerType","none").equals("none")) throw new IllegalArgumentException("TCP HTTP-заголовки Xray не поддерживаются sing-box.");
+            if(!q.getOrDefault("headerType","none").equals("none")) throw new IllegalArgumentException(L.t("TCP HTTP-заголовки Xray не поддерживаются.","Xray TCP HTTP headers are not supported."));
             return;
         }
         JSONObject t=Json.obj("type",type);
@@ -355,7 +350,7 @@ public final class ImportParser {
             case "grpc": t.put("service_name",q.getOrDefault("serviceName",q.getOrDefault("path","")));break;
             case "http": case "h2": t.put("type","http");t.put("path",q.getOrDefault("path","/"));if(q.containsKey("host")&&!q.get("host").isEmpty())t.put("host",Json.arr(q.get("host")));break;
             case "httpupgrade":t.put("path",q.getOrDefault("path","/"));if(q.containsKey("host")&&!q.get("host").isEmpty())t.put("host",q.get("host"));break;
-            default:throw new IllegalArgumentException("Транспорт "+type+" не поддерживается. Запросите у провайдера TCP, WS, gRPC или HTTPUpgrade.");
+            default:throw new IllegalArgumentException(L.t("Транспорт ","Transport ")+type+L.t(" не поддерживается. Запросите у провайдера TCP, WS, gRPC или HTTPUpgrade."," is not supported. Ask the provider for TCP, WS, gRPC or HTTPUpgrade."));
         }
         o.put("transport",t);
     }
@@ -368,12 +363,12 @@ public final class ImportParser {
         try{ v=new JSONObject(base64(payload)); }
         catch(Exception e){ return parseVmessUri(s); }
         String address=XrayConfig.str(v,"add","address","host");
-        if(address.isEmpty())throw new IllegalArgumentException("В ссылке VMess нет адреса сервера.");
+        if(address.isEmpty())throw new IllegalArgumentException(L.t("В ссылке VMess нет адреса сервера.","The VMess link has no server address."));
         String id=XrayConfig.str(v,"id","uuid");
-        if(id.isEmpty())throw new IllegalArgumentException("В ссылке VMess нет UUID.");
+        if(id.isEmpty())throw new IllegalArgumentException(L.t("В ссылке VMess нет UUID.","The VMess link has no UUID."));
         int port;
         try{ port=Integer.parseInt(XrayConfig.str(v,"port")); }
-        catch(NumberFormatException e){ throw new IllegalArgumentException("Некорректный порт в ссылке VMess."); }
+        catch(NumberFormatException e){ throw new IllegalArgumentException(L.t("Некорректный порт в ссылке VMess.","Invalid port in the VMess link.")); }
         String security=XrayConfig.str(v,"scy","security");
         JSONObject o=Json.obj("type","vmess","server",address.replace("[","").replace("]",""),"server_port",port,"uuid",id,"security",security.isEmpty()?"auto":security,"alter_id",v.optInt("aid",v.optInt("alterId",0)));
         Map<String,String> q=new LinkedHashMap<>();
@@ -390,7 +385,7 @@ public final class ImportParser {
     /** Some panels emit vmess:// in plain URI form instead of Base64 JSON. */
     private static JSONObject parseVmessUri(String s) throws Exception {
         Link l=split(s);
-        if(l.port<1)throw new IllegalArgumentException("Не удалось разобрать ссылку VMess.");
+        if(l.port<1)throw new IllegalArgumentException(L.t("Не удалось разобрать ссылку VMess.","Could not read the VMess link."));
         String auth=decode(l.userInfo);
         String[] pair=auth.split(":",2);
         JSONObject o=Json.obj("type","vmess","server",l.host,"server_port",l.port,"uuid",pair.length>1?pair[1]:auth,"security",first(l.query,"auto","encryption"),"alter_id",0);
@@ -407,13 +402,13 @@ public final class ImportParser {
             if(params>=0&&fragment.indexOf("serverDescription=",params)>0){description=describe(query(fragment.substring(params+1)).get("serverDescription"));fragment=fragment.substring(0,params);}
             name=decode(fragment);data=data.substring(0,hash);
         }
-        int question=data.indexOf('?');if(question>=0){Map<String,String> q=query(data.substring(question+1));if(q.containsKey("plugin")&&!q.get("plugin").isEmpty())throw new IllegalArgumentException("Shadowsocks plugin: используйте полный JSON sing-box.");data=data.substring(0,question);}
+        int question=data.indexOf('?');if(question>=0){Map<String,String> q=query(data.substring(question+1));if(q.containsKey("plugin")&&!q.get("plugin").isEmpty())throw new IllegalArgumentException(L.t("Shadowsocks plugin не поддерживается.","Shadowsocks plugin is not supported."));data=data.substring(0,question);}
         if(!data.contains("@")) data=base64(data);
-        int at=data.lastIndexOf('@');if(at<0)throw new IllegalArgumentException("Некорректная Shadowsocks-ссылка.");
+        int at=data.lastIndexOf('@');if(at<0)throw new IllegalArgumentException(L.t("Некорректная Shadowsocks-ссылка.","Invalid Shadowsocks link."));
         String user=data.substring(0,at);if(!user.contains(":")) user=base64(user);else user=decode(user);
-        String[] auth=user.split(":",2);if(auth.length!=2)throw new IllegalArgumentException("Нет пароля Shadowsocks.");
+        String[] auth=user.split(":",2);if(auth.length!=2)throw new IllegalArgumentException(L.t("Нет пароля Shadowsocks.","Shadowsocks password is missing."));
         Link l=split("ss://"+data.substring(at+1));
-        if(l.port<1)throw new IllegalArgumentException("Некорректный адрес Shadowsocks.");
+        if(l.port<1)throw new IllegalArgumentException(L.t("Некорректный адрес Shadowsocks.","Invalid Shadowsocks address."));
         JSONObject p=profile(name,Json.obj("type","shadowsocks","server",l.host,"server_port",l.port,"method",auth[0],"password",auth[1]),s,false);
         if(!description.isEmpty())p.put("description",description);
         return p;

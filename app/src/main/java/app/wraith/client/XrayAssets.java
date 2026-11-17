@@ -37,7 +37,7 @@ final class XrayAssets {
                 File target=new File(dir,name);
                 if(newBundle||!valid(target))try(InputStream in=context.getAssets().open("xray-geodata/"+name)){
                     File pending=File.createTempFile(name+"-",".tmp",dir);
-                    try{copy(in,pending,MAX_BYTES);if(!valid(pending))throw new IOException("Повреждён встроенный файл Xray GeoData.");replace(pending,target);}
+                    try{copy(in,pending,MAX_BYTES);if(!valid(pending))throw new IOException(L.t("Повреждён встроенный файл Xray GeoData.","The bundled Xray GeoData file is damaged."));replace(pending,target);}
                     finally{if(pending.exists())pending.delete();}
                 }
             }
@@ -137,7 +137,7 @@ final class XrayAssets {
         throw new IOException("Invalid protobuf length.");
     }
     private static File directory(Context context)throws IOException{
-        File dir=new File(context.getFilesDir(),"core/xray-geodata");if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Не удалось создать каталог Xray GeoData.");return dir;
+        File dir=new File(context.getFilesDir(),"core/xray-geodata");if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException(L.t("Не удалось создать каталог Xray GeoData.","Could not create the Xray GeoData folder."));return dir;
     }
     private static String bundleGeneration(Context context)throws IOException{
         if(bundledGeneration!=null)return bundledGeneration;

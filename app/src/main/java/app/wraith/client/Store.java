@@ -20,7 +20,7 @@ public final class Store {
     static JSONObject readOnlySnapshot(Context c)throws Exception{
         AtomicFile f=new AtomicFile(new File(c.getFilesDir(),"wraith.enc"));
         if(!f.getBaseFile().exists())return Json.obj("profiles",new JSONArray(),"subscriptions",new JSONArray(),"rules",new JSONArray(),"settings",new JSONObject(),"selected","");
-        byte[] bytes=f.readFully();if(bytes.length<29)throw new IOException("Повреждён файл профилей");
+        byte[] bytes=f.readFully();if(bytes.length<29)throw new IOException(L.t("Повреждён файл профилей","Profiles file is damaged"));
         Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,storageKey(),new GCMParameterSpec(128,Arrays.copyOf(bytes,12)));
         return new JSONObject(new String(cipher.doFinal(Arrays.copyOfRange(bytes,12,bytes.length)),StandardCharsets.UTF_8));
     }
@@ -33,14 +33,14 @@ public final class Store {
         try {
             AtomicFile f=file();
             if(f.getBaseFile().exists()) {
-                byte[] bytes=f.readFully(); if(bytes.length<29)throw new IOException("Повреждён файл профилей");
+                byte[] bytes=f.readFully(); if(bytes.length<29)throw new IOException(L.t("Повреждён файл профилей","Profiles file is damaged"));
                 Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Arrays.copyOf(bytes,12)));
                 state=new JSONObject(new String(cipher.doFinal(Arrays.copyOfRange(bytes,12,bytes.length)),StandardCharsets.UTF_8));
             } else { state=Json.obj("profiles",new JSONArray(),"subscriptions",new JSONArray(),"rules",new JSONArray(),"settings",new JSONObject(),"selected",""); }
             boolean migrated=migrate();
             migrated=repairDuplicateProfileIds()||migrated;
             if(collapseExpandedXrayPools()||migrated)save();
-        } catch(Exception e) { throw new IllegalStateException("Не удалось открыть зашифрованное хранилище. Данные сохранены; не очищайте приложение.",e); }
+        } catch(Exception e) { throw new IllegalStateException(L.t("Не удалось открыть зашифрованное хранилище. Данные сохранены; не очищайте приложение.","Could not open the encrypted storage. Your data is kept; do not clear the app."),e); }
     }
     /**
      * Drops settings that earlier builds stored but the config builder never emitted, and repairs
@@ -145,7 +145,7 @@ public final class Store {
     public synchronized void replaceProfile(JSONObject profile)throws Exception{
         JSONArray a=state.getJSONArray("profiles");String id=profile.getString("id");
         for(int i=0;i<a.length();i++)if(a.getJSONObject(i).optString("id").equals(id)){a.put(i,profile);save();return;}
-        throw new IllegalArgumentException("Сервер больше не найден в списке.");
+        throw new IllegalArgumentException(L.t("Сервер больше не найден в списке.","The server is no longer in the list."));
     }
     public synchronized void setting(String key,Object value)throws Exception{settings().put(key,value);save();}
     public synchronized void addProfiles(List<JSONObject> list)throws Exception{for(JSONObject p:list)state.getJSONArray("profiles").put(p);if(selected()==null&&!list.isEmpty())state.put("selected",list.get(0).getString("id"));save();}
@@ -190,8 +190,8 @@ public final class Store {
     public synchronized String backup()throws Exception{return snapshot().put("format","wraith-backup-v1").toString(2);}
     public synchronized void restore(String input)throws Exception{
         JSONObject restored=new JSONObject(input);
-        if(!restored.optString("format").equals("wraith-backup-v1")||restored.optJSONArray("profiles")==null||restored.optJSONArray("subscriptions")==null||restored.optJSONObject("settings")==null||restored.optJSONArray("rules")==null)throw new IllegalArgumentException("Это не резервная копия Wraith.");
-        for(JSONObject p:Json.objects(restored.getJSONArray("profiles")))if(p.optJSONObject("outbound")==null||p.optString("id").isEmpty())throw new IllegalArgumentException("Некорректный профиль в резервной копии.");
+        if(!restored.optString("format").equals("wraith-backup-v1")||restored.optJSONArray("profiles")==null||restored.optJSONArray("subscriptions")==null||restored.optJSONObject("settings")==null||restored.optJSONArray("rules")==null)throw new IllegalArgumentException(L.t("Это не резервная копия Wraith.","This is not a Wraith backup."));
+        for(JSONObject p:Json.objects(restored.getJSONArray("profiles")))if(p.optJSONObject("outbound")==null||p.optString("id").isEmpty())throw new IllegalArgumentException(L.t("Некорректный профиль в резервной копии.","Invalid profile in the backup."));
         JSONObject previous=state;state=restored;try{save();}catch(Exception e){state=previous;throw e;}
     }
 }

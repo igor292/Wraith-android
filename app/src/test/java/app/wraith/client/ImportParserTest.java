@@ -9,8 +9,6 @@ public class ImportParserTest {
     @Test public void profileSummaryShowsTransportSecurityAndJsonOnlyForJson()throws Exception{
         JSONObject link=ImportParser.parse("vless://11111111-1111-1111-1111-111111111111@example.com:443?security=reality&pbk=key&sid=ab&type=grpc").get(0);
         assertEquals("VLESS / GRPC / REALITY",MainActivity.profileSummary(link));
-        JSONObject json=ImportParser.parse("{\"type\":\"vless\",\"tag\":\"Test\",\"server\":\"example.com\",\"server_port\":443,\"uuid\":\"11111111-1111-1111-1111-111111111111\"}").get(0);
-        assertEquals("VLESS / TCP | JSON",MainActivity.profileSummary(json));
     }
     private final String uuid="11111111-1111-4111-8111-111111111111";
     private String b64(String s){return Base64.getEncoder().encodeToString(s.getBytes(StandardCharsets.UTF_8));}
@@ -24,8 +22,8 @@ public class ImportParserTest {
     @Test public void ipv6Vless()throws Exception{assertEquals("2001:db8::1",ImportParser.parse("vless://"+uuid+"@[2001:db8::1]:443?security=none").get(0).getJSONObject("outbound").getString("server"));}
     @Test public void subscriptionBase64()throws Exception{assertEquals(2,ImportParser.parse(b64("#profile-title: test\nsocks://host.example:1080\ntrojan://pass@example.com:443")).size());}
     @Test public void vmessWebsocket()throws Exception{JSONObject p=ImportParser.parse("vmess://"+b64(Json.obj("v","2","add","edge.example","port","443","id",uuid,"net","ws","path","/ws","host","cdn.example","tls","tls","ps","Test").toString())).get(0);assertEquals("/ws",p.getJSONObject("outbound").getJSONObject("transport").getString("path"));}
-    @Test public void hysteriaObfuscation()throws Exception{JSONObject o=ImportParser.parse("hy2://secret@example.com:443?obfs=salamander&obfs-password=mask&insecure=1").get(0).getJSONObject("outbound");assertEquals("hysteria2",o.getString("type"));assertEquals("mask",o.getJSONObject("obfs").getString("password"));assertTrue(o.getJSONObject("tls").getBoolean("insecure"));}
-    @Test public void fullConfigPreservesRules()throws Exception{JSONObject p=ImportParser.parse("{\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}],\"route\":{\"final\":\"direct\"}}").get(0);assertTrue(p.getBoolean("full"));assertEquals("direct",p.getJSONObject("outbound").getJSONObject("route").getString("final"));}
+    @Test(expected=IllegalArgumentException.class)public void hysteriaObfuscationIsRefused()throws Exception{ImportParser.parse("hy2://secret@example.com:443?obfs=salamander&obfs-password=mask");}
+    @Test(expected=IllegalArgumentException.class)public void singBoxJsonIsRefused()throws Exception{ImportParser.parse("{\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}],\"route\":{\"final\":\"direct\"}}");}
     @Test public void happPlainUrl()throws Exception{assertEquals("https://example.com/sub?a=1&b=2",ImportParser.unwrap("happ://add/https://example.com/sub?a=1&b=2"));}
     @Test(expected=IllegalArgumentException.class)public void rejectsHappCrypto(){ImportParser.unwrap("happ://crypt5/secret");}
     @Test(expected=IllegalArgumentException.class)public void rejectsXhttpInsteadOfDowngrading()throws Exception{ImportParser.parse("vless://"+uuid+"@example.com:443?type=xhttp");}
