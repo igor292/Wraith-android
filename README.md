@@ -1,4 +1,4 @@
-# Wraith
+# Wraith for Android
 
 Android VPN client for VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC, with two cores: **Xray** and **sing-box**. The interface is Material 3 with Material You colours. It imports Happ- and v2rayNG-style subscriptions and full Xray JSON, including multi-server configs with balancers (`leastPing` + `observatory`).
 
@@ -75,7 +75,7 @@ The PNGs are written to `app/build/screens`, rendered with Robolectric.
 
 ### Updates
 
-The app checks the latest GitHub release of `trinity13338/wraith` (`UpdateChecker.REPO`) and installs its APK only if the SHA-256 digest GitHub reports for the asset matches. Downloads may only reach GitHub hosts. Forks should change `REPO`.
+The app checks the latest GitHub release of `trinity13338/Wraith-android` (`UpdateChecker.REPO`) and installs its APK only if the SHA-256 digest GitHub reports for the asset matches. Downloads may only reach GitHub hosts. Forks should change `REPO`.
 
 ## License
 

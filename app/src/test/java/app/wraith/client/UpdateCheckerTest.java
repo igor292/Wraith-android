@@ -9,11 +9,11 @@ import static org.junit.Assert.*;
 public class UpdateCheckerTest {
     static final String SHA="4f6ae820bfc1a489a5c9b38108b11d919bc4bf68011170208eef877dcf700601";
     static String release(String tag,String url,String digest)throws Exception{
-        JSONArray assets=new JSONArray().put(Json.obj("name","SHA256SUMS.txt","browser_download_url","https://github.com/trinity13338/wraith/releases/download/"+tag+"/SHA256SUMS.txt","digest","sha256:"+SHA));
+        JSONArray assets=new JSONArray().put(Json.obj("name","SHA256SUMS.txt","browser_download_url","https://github.com/trinity13338/Wraith-android/releases/download/"+tag+"/SHA256SUMS.txt","digest","sha256:"+SHA));
         JSONObject apk=Json.obj("name","Wraith.apk","browser_download_url",url);if(digest!=null)apk.put("digest",digest);assets.put(apk);
         return Json.obj("tag_name",tag,"draft",false,"prerelease",false,"body","## Что нового\n- **Пинг** авто-конфигов.\n\n## Установка\nСкачайте APK.","assets",assets).toString();
     }
-    static String url(String tag){return "https://github.com/trinity13338/wraith/releases/download/"+tag+"/Wraith-"+tag.substring(1)+".apk";}
+    static String url(String tag){return "https://github.com/trinity13338/Wraith-android/releases/download/"+tag+"/Wraith-"+tag.substring(1)+".apk";}
 
     @Test public void newerReleaseIsOffered()throws Exception{
         UpdateChecker.Result r=UpdateChecker.parse(release("v0.10.42",url("v0.10.42"),"sha256:"+SHA),"0.10.41");
