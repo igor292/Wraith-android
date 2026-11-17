@@ -256,7 +256,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
     private void startPing(List<JSONObject> targets){
         if(targets.isEmpty())return;boolean changed=false;long run;String session;AtomicBoolean cancelled;ExecutorService pool;
         synchronized(pingLock){
-            if(!pingRunning){if(busy)return;busy=true;pingRunning=true;pingRunId++;pingSession=UUID.randomUUID().toString();pingCancelled=new AtomicBoolean();pingPool=Executors.newFixedThreadPool(5);pendingPingTasks=0;}
+            if(!pingRunning){if(busy)return;busy=true;pingRunning=true;pingRunId++;pingSession=UUID.randomUUID().toString();pingCancelled=new AtomicBoolean();pingPool=Executors.newFixedThreadPool(24);pendingPingTasks=0;}
             run=pingRunId;session=pingSession;cancelled=pingCancelled;pool=pingPool;
             for(JSONObject p:targets){String id=p.optString("id");if(id.isEmpty()||!pingingIds.add(id))continue;pendingPingTasks++;changed=true;
                 try{pool.submit(()->{
@@ -353,6 +353,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
         TextView meta=text(this,status,12,sub!=null&&sub.has("error")?RED:MUTED);meta.setMaxLines(3);pad(meta,0,4,0,0);titles.addView(meta);
         head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));titles.setOnClickListener(v->flip.run());
         head.addView(iconAction(collapsed?"expand":"collapse",collapsed?"Развернуть":"Свернуть",flip));
+        if(sub!=null)head.addView(iconAction("refresh","Обновить подписку",()->task("Обновляем «"+sub.optString("name")+"»…",()->{Subscriptions.update(this,sub);return "Подписка обновлена";})));
         head.addView(iconAction("pulse","Пинг серверов группы",()->pingGroup(group)));
         if(sub!=null)head.addView(iconAction("more","Действия с подпиской",()->subscriptionMenu(sub)));
         box.addView(head);
@@ -609,29 +610,40 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
             if(CoreRouter.engine(p,settings).equals(CoreRouter.XRAY)){
                 JSONArray candidates=p.optJSONArray("xrayCandidates");
                 if(candidates!=null&&candidates.length()>1){
-                    Throwable last=null;JSONObject probeSettings=Json.copy(settings);probeSettings.put("autoSelect",false).put("pinCandidate",true);
-                    for(int i=0;i<candidates.length();i++){
-                        if(cancelled.get()||Thread.currentThread().isInterrupted())throw new InterruptedException("Проверка отменена.");
-                        try{JSONObject one=Json.copy(p);one.put("outbound",candidates.getJSONObject(i));one.remove("xrayCandidates");return pingXray(one,probeSettings,url,method,mode,timeout,session,cancelled);}catch(InterruptedException e){throw e;}catch(Exception e){last=e;}
-                    }
-                    throw new IOException("Не ответил ни один сервер из пула ("+candidates.length()+"). "+(last==null?"":Subscriptions.safeError(last)),last);
+                    // Every server of an auto config at once (the probe service measures them in one
+                    // Xray instance); the best one is the row's latency. One by one took minutes.
+                    JSONObject probeSettings=Json.copy(settings);probeSettings.put("autoSelect",false).put("pinCandidate",true);
+                    List<Callable<Integer>> jobs=new ArrayList<>();
+                    for(int i=0;i<candidates.length();i++){JSONObject one=Json.copy(p);one.put("outbound",candidates.getJSONObject(i));one.remove("xrayCandidates");jobs.add(()->pingXray(one,probeSettings,url,method,mode,timeout,session,cancelled));}
+                    return bestOf(jobs,cancelled);
                 }
                 return pingXray(p,settings,url,method,mode,timeout,session,cancelled);
             }
             JSONArray pool=p.optJSONArray("xrayCandidates");
             if(pool!=null&&pool.length()>1){
-                Throwable last=null;
-                for(int i=0;i<pool.length();i++)try{
-                    JSONObject one=Json.copy(p);one.put("outbound",pool.getJSONObject(i));one.remove("xrayCandidates");
-                    return (int)Libbox.probeConfig(ConfigBuilder.probeConfig(one,Json.copy(settings)).toString(),"node-"+one.getString("id"),url,method,mode,timeout,WraithService::protectProbeFd);
-                }catch(Throwable e){last=e;}
-                throw new IOException("Не ответил ни один сервер из пула ("+pool.length()+"). "+(last==null?"":Subscriptions.safeError(last)),last);
+                List<Callable<Integer>> jobs=new ArrayList<>();
+                for(int i=0;i<pool.length();i++){JSONObject one=Json.copy(p);one.put("outbound",pool.getJSONObject(i));one.remove("xrayCandidates");
+                    jobs.add(()->(int)Libbox.probeConfig(ConfigBuilder.probeConfig(one,Json.copy(settings)).toString(),"node-"+one.getString("id"),url,method,mode,timeout,WraithService::protectProbeFd));}
+                return bestOf(jobs,cancelled);
             }
             return (int)Libbox.probeConfig(ConfigBuilder.probeConfig(p,Json.copy(settings)).toString(),"node-"+p.getString("id"),url,method,mode,timeout,WraithService::protectProbeFd);
         }
         if(p.optBoolean("full"))throw new IllegalArgumentException("Нет отдельного адреса в полном JSON");String host=o.getString("server");
         if(type.equals("icmp")){String ip=InetAddress.getByName(host).getHostAddress();java.lang.Process process=new ProcessBuilder("/system/bin/ping",ip.contains(":")?"-6":"-4","-n","-c","1","-W",String.valueOf(Math.max(1,timeout/1000)),ip).redirectErrorStream(true).start();try{if(!process.waitFor(timeout+1000,TimeUnit.MILLISECONDS))throw new IOException("ICMP: тайм-аут");String output=new String(Subscriptions.bounded(process.getInputStream()),StandardCharsets.UTF_8);java.util.regex.Matcher m=java.util.regex.Pattern.compile("time[=<]([0-9.]+)").matcher(output);if(process.exitValue()!=0||!m.find())throw new IOException("ICMP недоступен или заблокирован");return Math.max(1,(int)Math.ceil(Double.parseDouble(m.group(1))));}finally{process.destroy();}}
         long start=SystemClock.elapsedRealtime();try(Socket socket=new Socket()){WraithService.protectProbe(socket);socket.connect(new InetSocketAddress(host,o.getInt("server_port")),timeout);}return (int)(SystemClock.elapsedRealtime()-start);
+    }
+    /** Runs the probes in parallel; the fastest success wins, an error only when every server failed. */
+    private static int bestOf(List<Callable<Integer>> jobs,AtomicBoolean cancelled)throws Exception{
+        ExecutorService pool=Executors.newFixedThreadPool(Math.min(jobs.size(),12));
+        try{
+            int best=Integer.MAX_VALUE;Throwable last=null;
+            for(Future<Integer> f:pool.invokeAll(jobs)){
+                if(cancelled.get())throw new InterruptedException("Проверка отменена.");
+                try{Integer ms=f.get();if(ms!=null&&ms>0)best=Math.min(best,ms);}catch(ExecutionException e){last=e.getCause()==null?e:e.getCause();}
+            }
+            if(best!=Integer.MAX_VALUE)return best;
+            throw new IOException("Не ответил ни один сервер из пула ("+jobs.size()+"). "+(last==null?"":Subscriptions.safeError(last)),last);
+        }finally{pool.shutdownNow();}
     }
     private int pingXray(JSONObject profile,JSONObject settings,String url,String method,String mode,int timeout,String session,AtomicBoolean cancelled)throws Exception{
         CountDownLatch started=new CountDownLatch(1),done=new CountDownLatch(1);AtomicReference<Integer> latency=new AtomicReference<>();AtomicReference<String> failure=new AtomicReference<>();

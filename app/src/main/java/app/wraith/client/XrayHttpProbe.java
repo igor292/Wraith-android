@@ -34,7 +34,7 @@ final class XrayHttpProbe {
                     while((n=in.read(buffer))!=-1&&total<1024*1024)total+=n;
                 }
                 long elapsed=Math.max(1,android.os.SystemClock.elapsedRealtime()-started);best=Math.min(best,elapsed);
-            }catch(Exception e){last=e;}finally{if(connection!=null&&mode.equals("double"))connection.disconnect();}
+            }catch(Exception e){last=e;break;}finally{if(connection!=null&&mode.equals("double"))connection.disconnect();}
         }
         if(best==Long.MAX_VALUE)throw last==null?new java.io.IOException("Xray не получил ответ."):last;
         return (int)Math.min(Integer.MAX_VALUE,best);

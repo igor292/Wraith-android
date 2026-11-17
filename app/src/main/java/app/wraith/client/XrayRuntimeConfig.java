@@ -112,6 +112,8 @@ final class XrayRuntimeConfig {
                 if(sockopt.has("dialerProxy")&&!dependency.equals(sockopt.optString("dialerProxy")))throw new IllegalArgumentException("В JSON конфликтуют proxySettings и dialerProxy.");sockopt.put("dialerProxy",dependency);outbound.remove("proxySettings");
             }
         }
+        // Xray 26 refuses to start on the removed "allowInsecure"; drop it so the rest of the document still runs.
+        for(JSONObject outbound:Json.objects(root.optJSONArray("outbounds"))){JSONObject stream=outbound.optJSONObject("streamSettings"),tls=stream==null?null:stream.optJSONObject("tlsSettings");if(tls!=null&&tls.remove("allowInsecure")!=null)AppLog.add("allowInsecure удалён: Xray 26 его не поддерживает, сертификат проверяется.");}
         // DPI options apply to every server the core may pick, not only to the first one.
         List<String> candidates=proxyTags(root);
         if(pin)XrayOutboundOptions.apply(root,profile,settings,tag);

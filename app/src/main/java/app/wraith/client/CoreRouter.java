@@ -31,6 +31,8 @@ public final class CoreRouter {
         String type=out==null?"":out.optString("type").toLowerCase(java.util.Locale.ROOT);
         // These share links continue using the core and importer that support them.
         if(java.util.Set.of("hysteria","hysteria2","tuic","anytls","wireguard","ssh").contains(type))return SING_BOX;
+        // Xray 26 removed allowInsecure: an unverified certificate runs on sing-box, which still supports it.
+        JSONObject tls=out==null?null:out.optJSONObject("tls");if(tls!=null&&tls.optBoolean("insecure"))return SING_BOX;
         if(java.util.Set.of("vless","trojan","shadowsocks","socks").contains(type))return XRAY;
         return SING_BOX;
     }

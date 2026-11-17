@@ -13,6 +13,8 @@ public final class XrayProbeService extends VpnService {
     static final String ACTION="app.wraith.client.XRAY_PROBE",ACTION_CANCEL="app.wraith.client.XRAY_PROBE_CANCEL";
     static final String EXTRA_PROFILE="profile",EXTRA_SETTINGS="settings",EXTRA_URL="url",EXTRA_TIMEOUT="timeout",EXTRA_METHOD="method",EXTRA_MODE="mode",EXTRA_RECEIVER="receiver",EXTRA_MESSENGER="messenger",EXTRA_SESSION="session";
     static final int RESULT=0,STARTED=1;
+    /** Servers measured by one temporary Xray instance at once (one core start per batch, not per five). */
+    static final int MAX_BATCH=32;
     private final ScheduledExecutorService worker=Executors.newSingleThreadScheduledExecutor();
     private final Object lock=new Object();
     private final ArrayDeque<Job> pending=new ArrayDeque<>();
@@ -53,20 +55,20 @@ public final class XrayProbeService extends VpnService {
                     if(cancelledSessions.contains(job.session))reply(job,-1,"Проверка отменена.");else pending.add(job);
                 }
             }
-            if(!draining&&!pending.isEmpty()){draining=true;worker.schedule(this::drain,30,TimeUnit.MILLISECONDS);}
+            if(!draining&&!pending.isEmpty()){draining=true;worker.schedule(this::drain,120,TimeUnit.MILLISECONDS);}
             else if(!draining&&pending.isEmpty())stopSelf(startId);
         }
         return START_NOT_STICKY;
     }
 
     private void drain(){
-        List<Job> batch=new ArrayList<>(5);
+        List<Job> batch=new ArrayList<>(MAX_BATCH);
         synchronized(lock){
             if(closed)return;
             Job first=pending.poll();
             if(first!=null){
                 batch.add(first);Iterator<Job> it=pending.iterator();
-                while(it.hasNext()&&batch.size()<5){Job next=it.next();if(next.timeout==first.timeout&&Objects.equals(next.url,first.url)){batch.add(next);it.remove();}}
+                while(it.hasNext()&&batch.size()<MAX_BATCH){Job next=it.next();if(next.timeout==first.timeout&&Objects.equals(next.url,first.url)){batch.add(next);it.remove();}}
             }
         }
         List<Job> probing=new ArrayList<>(batch.size());Map<Job,Integer> ports=new IdentityHashMap<>();boolean startedCore=false;
@@ -87,7 +89,7 @@ public final class XrayProbeService extends VpnService {
             // necessarily bound. Do not race the first HTTP probe against that async startup.
             for(Job job:probing)awaitLoopback(ports.get(job),job.timeout,()->cancelled(job));
             for(Job job:probing)send(job,STARTED,new Bundle());
-            ExecutorService checks=Executors.newFixedThreadPool(Math.min(5,probing.size()));
+            ExecutorService checks=Executors.newFixedThreadPool(Math.min(MAX_BATCH,probing.size()));
             try{Map<Job,Future<Integer>> futures=new IdentityHashMap<>();for(Job job:probing)futures.put(job,checks.submit(()->XrayHttpProbe.measure(job.url,job.method,job.mode,job.timeout,ports.get(job),()->cancelled(job))));
                 for(Job job:probing)if(!cancelled(job))try{reply(job,futures.get(job).get(job.timeout*2L+5000,TimeUnit.MILLISECONDS),"");}catch(Throwable e){Throwable cause=e instanceof ExecutionException&&e.getCause()!=null?e.getCause():e;reply(job,-1,Subscriptions.safeError(cause));}
             }finally{checks.shutdownNow();}
