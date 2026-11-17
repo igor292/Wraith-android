@@ -159,7 +159,8 @@ pub fn measure(url: &str, head: bool, keep_alive: bool, timeout: u64, port: u16)
                 if !head { let mut body = r.into_reader(); let mut buf = [0u8; 8192]; let mut total = 0; use std::io::Read; while total < 1 << 20 { match body.read(&mut buf) { Ok(0) | Err(_) => break, Ok(n) => total += n } } }
                 best = best.min(start.elapsed().as_millis().max(1) as i64);
             }
-            Err(e) => last = short_error(&e.to_string()),
+            // A server that did not answer once will not answer the second time either: do not wait twice.
+            Err(e) => { last = short_error(&e.to_string()); break; }
         }
     }
     if best == i64::MAX { Err(if last.is_empty() { "Нет ответа".into() } else { last }) } else { Ok(best) }
