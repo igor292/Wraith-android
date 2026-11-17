@@ -31,7 +31,34 @@ Android VPN client for VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC, 
   - Provider configs cannot open their own API listeners or write log files.
 - Quick Settings tile, boot start, `wraith://connect` / `disconnect` / `toggle` automation links (Happ-compatible `happ://` too).
 
-A Windows WPF client (sing-box, system proxy or TUN) lives in [`Wraith.Windows/`](Wraith.Windows). It is less mature than the Android app.
+## Windows
+
+A native Windows client written in Rust (egui) lives in [`wraith-desktop/`](wraith-desktop). It is a port of the Android app:
+
+- the same import (links, subscriptions, Xray and sing-box JSON, balancer configs);
+- the same engines: Xray-core for everything it can run, sing-box for the rest;
+- the same proxy latency check;
+- the same DNS policy and security fixes;
+- the same Material 3 look.
+
+It has two modes. **System proxy** needs no admin rights. **TUN** captures all traffic and needs admin rights; it uses Xray's Wintun inbound, which also allows routing rules per program (`.exe`). Further features:
+
+- tray icon and autostart;
+- settings encrypted with DPAPI;
+- updates from GitHub Releases, verified by SHA-256.
+
+<p>
+<img src="docs/screens/windows-home-dark.png" width="400">
+<img src="docs/screens/windows-settings-dark.png" width="400">
+</p>
+
+Build: `cd wraith-desktop && cargo build --release`. This needs Rust stable with the MSVC toolchain. Put the following next to `Wraith.exe`:
+
+- `xray.exe`, `geoip.dat` and `geosite.dat` from the [Xray-core release](https://github.com/XTLS/Xray-core/releases);
+- `sing-box.exe`, built from `third_party/wraith-core`;
+- `wintun.dll`.
+
+Tests: `cargo test`. They validate the generated configs with the real cores when those cores are present. `cargo test -- --ignored` adds end-to-end checks through a local Xray server.
 
 ## Building (Android)
 
