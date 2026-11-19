@@ -261,7 +261,10 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
         synchronized(pingLock){
             if(!pingRunning){if(busy)return;busy=true;pingRunning=true;pingRunId++;pingSession=UUID.randomUUID().toString();pingCancelled=new AtomicBoolean();pingPool=Executors.newFixedThreadPool(24);pendingPingTasks=0;}
             run=pingRunId;session=pingSession;cancelled=pingCancelled;pool=pingPool;
+            // A new check of several servers starts from the provider's order: old results are dropped.
+            boolean reset=targets.size()>1;
             for(JSONObject p:targets){String id=p.optString("id");if(id.isEmpty()||!pingingIds.add(id))continue;pendingPingTasks++;changed=true;
+                if(reset){p.remove("latency");p.remove("latencyType");p.remove("pingError");}
                 try{pool.submit(()->{
                     try{
                         if(cancelled.get()||Thread.currentThread().isInterrupted())return;
@@ -282,7 +285,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
             }
             if(pingRunning&&pendingPingTasks==0){pingRunning=false;busy=false;pingCancelled=null;ExecutorService finished=pingPool;pingPool=null;if(finished!=null)finished.shutdown();}
         }
-        if(changed||pingRunning){setPingUi(pingRunning);updatePingRows();updateHome();}
+        if(changed||pingRunning){setPingUi(pingRunning);updatePingRows();if(targets.size()>1&&serverResults!=null)reorderVisibleProfiles();updateHome();}
     }
     private void cancelPing(){String session;synchronized(pingLock){if(!pingRunning)return;session=pingSession;pingRunId++;AtomicBoolean cancelled=pingCancelled;if(cancelled!=null)cancelled.set(true);ExecutorService pool=pingPool;if(pool!=null)pool.shutdownNow();pingRunning=false;busy=false;pendingPingTasks=0;pingCancelled=null;pingPool=null;pingSession="";pingingIds.clear();}try{startService(new Intent(this,XrayProbeService.class).setAction(XrayProbeService.ACTION_CANCEL).putExtra(XrayProbeService.EXTRA_SESSION,session));}catch(Exception ignored){}setPingUi(false);updatePingRows();updateHome();}
     private void setPingUi(boolean active){if(pingButton==null)return;String label=active?L.t("Остановить проверку","Stop checking"):L.t("Пинг всех","Ping all");if(!label.contentEquals(pingButton.getText())){pingButton.setText(label);pingButton.setIcon(new Glyph(this,active?"close":"pulse"));}}

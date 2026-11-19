@@ -168,7 +168,8 @@ public final class Store {
     /**
      * Stable identity of a subscription node. Providers rename nodes constantly (they append usage
      * or load to the label), so matching on the endpoint and credential keeps the selection,
-     * favourite flag and measured latency attached to the same server across updates.
+     * favourite flag attached to the same server across updates. Old latencies are dropped, so a
+     * refreshed subscription shows the provider's order until it is pinged again.
      */
     private static String identity(JSONObject p){
         JSONObject o=p.optJSONObject("outbound");
@@ -181,7 +182,7 @@ public final class Store {
         Map<String,ArrayDeque<JSONObject>> byIdentity=new HashMap<>();
         for(JSONObject p:previous)byIdentity.computeIfAbsent(identity(p),k->new ArrayDeque<>()).addLast(p);
         for(JSONObject p:incoming){p.put("group",group);ArrayDeque<JSONObject> matches=byIdentity.get(identity(p));JSONObject prev=matches==null||matches.isEmpty()?null:matches.removeFirst();
-            if(prev!=null){String oldId=prev.optString("id");if(!oldId.isEmpty()&&!usedIds.contains(oldId))p.put("id",oldId);p.put("favorite",prev.optBoolean("favorite"));if(prev.optInt("latency",-1)>=0){p.put("latency",prev.optInt("latency"));p.put("latencyType",prev.optString("latencyType","tcp"));}}
+            if(prev!=null){String oldId=prev.optString("id");if(!oldId.isEmpty()&&!usedIds.contains(oldId))p.put("id",oldId);p.put("favorite",prev.optBoolean("favorite"));}
             String id=p.optString("id");if(id.isEmpty()||!usedIds.add(id)){do{id=UUID.randomUUID().toString();}while(!usedIds.add(id));p.put("id",id);}
         }
     }

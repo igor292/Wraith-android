@@ -188,7 +188,7 @@ public class ImportParserTest {
         JSONObject nextA=Json.obj("id","new-a","outbound",outbound),nextB=Json.obj("id","new-b","outbound",outbound),nextC=Json.obj("id","new-c","outbound",outbound);
         Store.reconcileSubscriptionProfiles(List.of(oldA,oldB),List.of(nextA,nextB,nextC),new HashSet<>(List.of("outside-id")),"sub");
         assertEquals("old-a",nextA.getString("id"));assertEquals("old-b",nextB.getString("id"));
-        assertTrue(nextA.optBoolean("favorite"));assertEquals(42,nextA.getInt("latency"));
+        assertTrue(nextA.optBoolean("favorite"));assertFalse("old latency is dropped: provider order until the next ping",nextA.has("latency"));
         Set<String> ids=new HashSet<>(List.of(nextA.getString("id"),nextB.getString("id"),nextC.getString("id")));
         assertEquals(3,ids.size());assertFalse(ids.contains("outside-id"));
     }
