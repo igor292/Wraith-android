@@ -232,8 +232,13 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
         serverList();
         updateHome();
     }
-    private TextView avatar(String glyph,boolean selected){TextView a=text(this,glyph,18,selected?ON_PRIMARY:ON_SECONDARY_CONTAINER);a.setGravity(Gravity.CENTER);a.setIncludeFontPadding(false);a.setBackground(bg(selected?MINT:SECONDARY_CONTAINER,d(20)));return a;}
-    private String serverGlyph(String name){String flag=PingInfo.leadingFlag(name);if(!flag.isEmpty())return flag;String n=name.toLowerCase(Locale.ROOT);if(n.contains("german")||n.contains("de "))return "🇩🇪";if(n.contains("finland")||n.contains("fi "))return "🇫🇮";if(n.contains("nether")||n.contains("nl "))return "🇳🇱";if(n.contains("usa")||n.contains("united states"))return "🇺🇸";return "◆";}
+    private TextView avatar(String glyph,boolean selected){TextView a=text(this,glyph,18,selected?ON_PRIMARY:ON_SECONDARY_CONTAINER);a.setGravity(Gravity.CENTER);a.setIncludeFontPadding(false);a.setBackground(bg(selected?MINT:SECONDARY_CONTAINER,d(20)));
+        // A flag fills the circle as an image; the selected server keeps a ring in the accent colour.
+        android.graphics.drawable.Drawable flag=Flags.circle(this,glyph);
+        if(flag!=null){a.setText("");android.graphics.drawable.GradientDrawable ring=new android.graphics.drawable.GradientDrawable();ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);ring.setStroke(selected?d(2):1,selected?MINT:LINE);a.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{flag,ring}));}
+        else if(PingInfo.isEmoji(glyph))a.setTextSize(22);
+        return a;}
+    private String serverGlyph(String name){String flag=PingInfo.firstEmoji(name);if(!flag.isEmpty())return flag;String n=name.toLowerCase(Locale.ROOT);if(n.contains("german")||n.contains("de "))return "🇩🇪";if(n.contains("finland")||n.contains("fi "))return "🇫🇮";if(n.contains("nether")||n.contains("nl "))return "🇳🇱";if(n.contains("usa")||n.contains("united states"))return "🇺🇸";return "◆";}
     /** Servers: search, subscriptions as cards, every server with its own actions. */
     /** Search, "ping all" and the subscriptions with their servers. */
     private void serverList(){
