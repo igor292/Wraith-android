@@ -279,7 +279,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
                             reorderAfterPing=--pendingPingTasks==0;
                             if(reorderAfterPing){try{store.save();}catch(Exception ignored){}pingRunning=false;busy=false;pingCancelled=null;ExecutorService finished=pingPool;pingPool=null;if(finished!=null)finished.shutdown();pingingIds.clear();}
                         }
-                        runOnUiThread(()->{synchronized(pingLock){if(run!=pingRunId)return;}updatePingRow(p);if(reorderAfterPing&&store.settings().optString("sort","none").equals("ping")&&serverResults!=null)reorderVisibleProfiles();setPingUi(pingRunning);updateHome();});
+                        runOnUiThread(()->{synchronized(pingLock){if(run!=pingRunId)return;}updatePingRow(p);/* Sorting by ping moves a server into place as soon as its result arrives. */if(store.settings().optString("sort","none").equals("ping")&&serverResults!=null)reorderVisibleProfiles();setPingUi(pingRunning);updateHome();});
                     }
                 });}catch(RejectedExecutionException e){pingingIds.remove(id);pendingPingTasks--;}
             }
