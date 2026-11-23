@@ -17,7 +17,7 @@ import java.util.Set;
  * APK signed with a different key.
  */
 final class UpdateChecker {
-    static final String REPO="trinity13338/Wraith-android";
+    static final String REPO="igor292/Wraith-android";
     static final String LATEST_URL="https://api.github.com/repos/"+REPO+"/releases/latest";
     /** The only hosts an update request may reach, including redirects to GitHub's asset storage. */
     private static final Set<String> HOSTS=Set.of("api.github.com","github.com","objects.githubusercontent.com","release-assets.githubusercontent.com");
