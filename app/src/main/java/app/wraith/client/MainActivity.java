@@ -283,11 +283,11 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
                     }
                 });}catch(RejectedExecutionException e){pingingIds.remove(id);pendingPingTasks--;}
             }
-            if(pingRunning&&pendingPingTasks==0){pingRunning=false;busy=false;pingCancelled=null;ExecutorService finished=pingPool;pingPool=null;if(finished!=null)finished.shutdown();}
+            if(pingRunning&&pendingPingTasks==0){pingRunning=false;busy=false;pingCancelled=null;ExecutorService finished=pingPool;pingPool=null;if(finished!=null)finished.shutdown();boolean smart=smartConnectAfterPing;smartConnectAfterPing=false;if(smart)handler.post(()->finishSmartConnect(run));}
         }
         if(changed||pingRunning){setPingUi(pingRunning);updatePingRows();if(targets.size()>1&&serverResults!=null)reorderVisibleProfiles();updateHome();}
     }
-    private void cancelPing(){String session;synchronized(pingLock){if(!pingRunning)return;session=pingSession;pingRunId++;AtomicBoolean cancelled=pingCancelled;if(cancelled!=null)cancelled.set(true);ExecutorService pool=pingPool;if(pool!=null)pool.shutdownNow();pingRunning=false;busy=false;pendingPingTasks=0;pingCancelled=null;pingPool=null;pingSession="";pingingIds.clear();}try{startService(new Intent(this,XrayProbeService.class).setAction(XrayProbeService.ACTION_CANCEL).putExtra(XrayProbeService.EXTRA_SESSION,session));}catch(Exception ignored){}setPingUi(false);updatePingRows();updateHome();}
+    private void cancelPing(){String session;synchronized(pingLock){if(!pingRunning)return;smartConnectAfterPing=false;session=pingSession;pingRunId++;AtomicBoolean cancelled=pingCancelled;if(cancelled!=null)cancelled.set(true);ExecutorService pool=pingPool;if(pool!=null)pool.shutdownNow();pingRunning=false;busy=false;pendingPingTasks=0;pingCancelled=null;pingPool=null;pingSession="";pingingIds.clear();}try{startService(new Intent(this,XrayProbeService.class).setAction(XrayProbeService.ACTION_CANCEL).putExtra(XrayProbeService.EXTRA_SESSION,session));}catch(Exception ignored){}setPingUi(false);updatePingRows();updateHome();}
     private void setPingUi(boolean active){if(pingButton==null)return;String label=active?L.t("Остановить проверку","Stop checking"):L.t("Пинг всех","Ping all");if(!label.contentEquals(pingButton.getText())){pingButton.setText(label);pingButton.setIcon(new Glyph(this,active?"close":"pulse"));}}
     private void updateHome(){if(tab!=HOME||stateLabel==null)return;int state=WraithService.state;if(orb!=null){orb.state=state;orb.pinging=pingRunning;orb.invalidate();}
         Anim.swap(stateLabel,pingRunning?L.t("Проверка задержки","Latency check"):state==WraithService.CONNECTED?L.t("Подключено","Connected"):state==WraithService.CONNECTING?L.t("Подключение…","Connecting…"):state==WraithService.STOPPING?L.t("Отключение…","Disconnecting…"):L.t("Не подключено","Not connected"));
@@ -314,6 +314,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
     private void toggleConnection(){if(pingRunning){cancelPing();return;}if(WraithService.state!=WraithService.OFF){WraithService.stop(this);return;}if(store.selected()==null){importDialog("");return;}WraithService.error="";shownError="";Intent request=android.net.VpnService.prepare(this);if(request!=null)startActivityForResult(request,10);else beginConnect();}
     /** With Smart Connect enabled, measure every separate subscription profile before starting. */
     private void beginConnect(){
+        if(busy){toast(L.t("Подождите завершения текущей операции.","Please wait for the current operation to finish."));return;}
         if(store.settings().optBoolean("autoSelect",true)&&store.profiles().size()>1){
             smartConnectAfterPing=true;
             startPing(new ArrayList<>(store.profiles()));
