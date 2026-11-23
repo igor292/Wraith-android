@@ -47,6 +47,9 @@ jobs:
           cp "$AAR" app/libs/libXray.aar
           ls -lh app/libs/libXray.aar
 
+      - name: Normalize Gradle wrapper line endings
+        run: sed -i 's/\r$//' gradlew
+
       - name: Run unit tests and build release APK
         run: bash ./gradlew testReleaseUnitTest assembleDebug
 
