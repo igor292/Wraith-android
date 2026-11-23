@@ -48,7 +48,7 @@ jobs:
           ls -lh app/libs/libXray.aar
 
       - name: Run unit tests and build release APK
-        run: ./gradlew testReleaseUnitTest assembleDebug
+        run: bash ./gradlew testReleaseUnitTest assembleDebug
 
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
