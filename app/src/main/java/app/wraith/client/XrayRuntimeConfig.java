@@ -89,7 +89,7 @@ final class XrayRuntimeConfig {
         // A provider balancer (leastPing/random/roundRobin with observatory) is the automatic server
         // choice the user asked for. Pinning it to the first server meant one dead node took the whole
         // profile down. Latency probes still pin a single candidate ("pinCandidate").
-        boolean pin=settings.optBoolean("pinCandidate")||(!settings.optBoolean("autoSelect")&&!providerBalancing(root));
+        boolean pin=settings.optBoolean("pinCandidate")||(!settings.optBoolean("autoSelect",true)&&!providerBalancing(root));
         if(pin){
             JSONObject chosen=null;JSONArray ordered=new JSONArray();for(JSONObject outbound:Json.objects(outbounds))if(tag.equals(outbound.optString("tag"))){chosen=outbound;break;}
             if(chosen==null)throw new IllegalArgumentException(L.t("Не найден выбранный Xray outbound.","The selected Xray outbound was not found."));
