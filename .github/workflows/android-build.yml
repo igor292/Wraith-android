@@ -1,6 +1,8 @@
 name: Android build
 
 on:
+  push:
+    branches: [feature/smart-connect-default]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -44,11 +46,11 @@ jobs:
           ls -lh app/libs/libXray.aar
 
       - name: Run unit tests and build release APK
-        run: ./gradlew testReleaseUnitTest assembleRelease
+        run: ./gradlew testReleaseUnitTest assembleDebug
 
-      - name: Upload release APK
+      - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: wraith-smart-connect-release
-          path: app/build/outputs/apk/release/*.apk
+          name: wraith-smart-connect-debug
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
