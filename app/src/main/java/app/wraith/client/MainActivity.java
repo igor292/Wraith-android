@@ -53,7 +53,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
     /** Live values of the open statistics page; refreshed by the tick instead of rebuilding the page. */
     private Runnable statsUpdater;
     private final Handler handler=new Handler(Looper.getMainLooper());private boolean busy;private String exportData="";private String exportName="";
-    private LinearLayout serverResults;private MaterialButton pingButton;private volatile boolean pingRunning;private volatile AtomicBoolean pingCancelled;private volatile ExecutorService pingPool;private long pingRunId;private String pingSession="",justSelected="";private int tabFrom=-1,settingsRootScroll=0,restoreScroll=-1;
+    private LinearLayout serverResults;private MaterialButton pingButton;private volatile boolean pingRunning;private volatile AtomicBoolean pingCancelled;private boolean smartConnectAfterPing;private volatile ExecutorService pingPool;private long pingRunId;private String pingSession="",justSelected="";private int tabFrom=-1,settingsRootScroll=0,restoreScroll=-1;
     private ValueAnimator pingButtonAnimator;
     private UpdateChecker.Result pendingUpdate;
     // Only the live parts of the page are redrawn on a state change. Rebuilding the whole body
@@ -277,7 +277,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
                             // new probe. Only its own generation may remove the row's spinner.
                             if(run!=pingRunId)return;pingingIds.remove(id);
                             reorderAfterPing=--pendingPingTasks==0;
-                            if(reorderAfterPing){try{store.save();}catch(Exception ignored){}pingRunning=false;busy=false;pingCancelled=null;ExecutorService finished=pingPool;pingPool=null;if(finished!=null)finished.shutdown();pingingIds.clear();}
+                            if(reorderAfterPing){try{store.save();}catch(Exception ignored){}pingRunning=false;busy=false;pingCancelled=null;ExecutorService finished=pingPool;pingPool=null;if(finished!=null)finished.shutdown();pingingIds.clear();boolean smart=smartConnectAfterPing;smartConnectAfterPing=false;if(smart)handler.post(()->finishSmartConnect(run));}
                         }
                         runOnUiThread(()->{synchronized(pingLock){if(run!=pingRunId)return;}updatePingRow(p);/* Sorting by ping moves a server into place as soon as its result arrives. */if(store.settings().optString("sort","none").equals("ping")&&serverResults!=null)reorderVisibleProfiles();setPingUi(pingRunning);updateHome();});
                     }
@@ -311,7 +311,29 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
         }
     }
     public static String bytes(long b){if(b<1024)return b+L.t(" Б"," B");if(b<1024*1024)return String.format(Locale.ROOT,L.t("%.1f КБ","%.1f KB"),b/1024.0);if(b<1024L*1024*1024)return String.format(Locale.ROOT,L.t("%.1f МБ","%.1f MB"),b/1048576.0);return String.format(Locale.ROOT,L.t("%.2f ГБ","%.2f GB"),b/1073741824.0);}
-    private void toggleConnection(){if(pingRunning){cancelPing();return;}if(WraithService.state!=WraithService.OFF){WraithService.stop(this);return;}if(store.selected()==null){importDialog("");return;}WraithService.error="";shownError="";Intent request=android.net.VpnService.prepare(this);if(request!=null)startActivityForResult(request,10);else WraithService.start(this);}
+    private void toggleConnection(){if(pingRunning){cancelPing();return;}if(WraithService.state!=WraithService.OFF){WraithService.stop(this);return;}if(store.selected()==null){importDialog("");return;}WraithService.error="";shownError="";Intent request=android.net.VpnService.prepare(this);if(request!=null)startActivityForResult(request,10);else beginConnect();}
+    /** With Smart Connect enabled, measure every separate subscription profile before starting. */
+    private void beginConnect(){
+        if(store.settings().optBoolean("autoSelect",true)&&store.profiles().size()>1){
+            smartConnectAfterPing=true;
+            startPing(new ArrayList<>(store.profiles()));
+            toast(L.t("Ищем самый быстрый доступный сервер…","Finding the fastest available server…"));
+            return;
+        }
+        WraithService.start(this);
+    }
+    /** Select the lowest-latency successful profile from this completed Smart Connect batch. */
+    private void finishSmartConnect(long run){
+        if(isFinishing()||run!=pingRunId||WraithService.state!=WraithService.OFF)return;
+        JSONObject best=null;int bestMs=Integer.MAX_VALUE;
+        for(JSONObject p:store.profiles()){
+            int ms=p.optInt("latency",-1);
+            if(ms>0&&!p.has("pingError")&&ms<bestMs){best=p;bestMs=ms;}
+        }
+        if(best==null){toast(L.t("Не удалось найти доступный сервер. Проверьте подключение и попробуйте снова.","No available server was found. Check your connection and try again."));updateHome();return;}
+        try{store.select(best.getString("id"));refreshServers();updateHome();toast(L.t("Выбран быстрый сервер: ","Fast server selected: ")+best.optString("name"));WraithService.start(this);}
+        catch(Exception e){error(e);}
+    }
     private void drawServerResults(LinearLayout results,boolean animate){
         results.removeAllViews();profileMetaViews.clear();profileLists.clear();profileRows.clear();Set<String> known=new HashSet<>();for(JSONObject sub:store.subscriptions()){known.add(sub.optString("id"));drawGroup(results,sub,sub.optString("id"),sub.optString("name",L.t("Подписка","Subscription")),known);}
         boolean manual=false;for(JSONObject p:store.profiles())if(!known.contains(p.optString("group")))manual=true;
@@ -969,7 +991,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
     private void qr(String value){try{BitMatrix matrix=new MultiFormatWriter().encode(value,BarcodeFormat.QR_CODE,720,720);Bitmap bitmap=Bitmap.createBitmap(720,720,Bitmap.Config.RGB_565);for(int y=0;y<720;y++)for(int x=0;x<720;x++)bitmap.setPixel(x,y,matrix.get(x,y)?Color.BLACK:Color.WHITE);ImageView image=new ImageView(this);image.setImageBitmap(bitmap);image.setAdjustViewBounds(true);pad(image,20,20,20,20);new InlinePanel.Builder(this).setTitle(L.t("QR конфигурации","Configuration QR")).setView(image).setPositiveButton(L.t("Готово","Done"),null).show();}catch(Exception e){message(L.t("QR недоступен","QR unavailable"),L.t("Конфигурация слишком большая. Поделитесь текстом или файлом.","The configuration is too large. Share it as text or a file."));}}
     private void copy(String text){getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Wraith",text));toast(L.t("Скопировано","Copied"));}
     private void openLink(String url){try{Uri u=Uri.parse(url);if(!Set.of("https","tg").contains(u.getScheme()))throw new IllegalArgumentException(L.t("Провайдер не указал безопасную ссылку.","The provider did not give a safe link."));startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception e){error(e);}}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);IntentResult scan=IntentIntegrator.parseActivityResult(request,result,data);if(scan!=null){if(scan.getContents()!=null)importDialog(scan.getContents());return;}if(request==10){if(result==RESULT_OK)WraithService.start(this);else toast(L.t("Разрешение VPN не выдано","VPN permission not granted"));return;}if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();if(request==20||request==22)task(L.t("Читаем файл…","Reading file…"),()->{String text=new String(Subscriptions.bounded(getContentResolver().openInputStream(uri)),StandardCharsets.UTF_8);if(request==22){if(WraithService.state!=WraithService.OFF)WraithService.stop(this);store.restore(text);return L.t("Резервная копия восстановлена","Backup restored");}runOnUiThread(()->importDialog(text));return null;});if(request==21){String text=exportData;task(L.t("Сохраняем…","Saving…"),()->{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException(L.t("Не удалось открыть файл","Could not open the file"));out.write(text.getBytes(StandardCharsets.UTF_8));}return L.t("Файл сохранён","File saved");});}}
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);IntentResult scan=IntentIntegrator.parseActivityResult(request,result,data);if(scan!=null){if(scan.getContents()!=null)importDialog(scan.getContents());return;}if(request==10){if(result==RESULT_OK)beginConnect();else toast(L.t("Разрешение VPN не выдано","VPN permission not granted"));return;}if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();if(request==20||request==22)task(L.t("Читаем файл…","Reading file…"),()->{String text=new String(Subscriptions.bounded(getContentResolver().openInputStream(uri)),StandardCharsets.UTF_8);if(request==22){if(WraithService.state!=WraithService.OFF)WraithService.stop(this);store.restore(text);return L.t("Резервная копия восстановлена","Backup restored");}runOnUiThread(()->importDialog(text));return null;});if(request==21){String text=exportData;task(L.t("Сохраняем…","Saving…"),()->{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException(L.t("Не удалось открыть файл","Could not open the file"));out.write(text.getBytes(StandardCharsets.UTF_8));}return L.t("Файл сохранён","File saved");});}}
     /** M3 outlined text field look: 1dp outline, 2dp primary outline while focused. */
     private EditText edit(String hint,String value,boolean multi){EditText e=new EditText(this);e.setTextColor(TEXT);e.setHintTextColor(MUTED);e.setTextSize(16*FONT);e.setHint(hint);e.setText(value);
         android.graphics.drawable.StateListDrawable outline=new android.graphics.drawable.StateListDrawable();android.graphics.drawable.GradientDrawable focused=bg(0x00000000,d(12));focused.setStroke(d(2),MINT);android.graphics.drawable.GradientDrawable idle=bg(0x00000000,d(12));idle.setStroke(d(1),OUTLINE);outline.addState(new int[]{android.R.attr.state_focused},focused);outline.addState(new int[0],idle);e.setBackground(outline);pad(e,16,14,16,14);e.setMinHeight(d(56));
