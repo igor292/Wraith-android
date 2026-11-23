@@ -698,7 +698,7 @@ public final class MainActivity extends androidx.appcompat.app.AppCompatActivity
         rowSetting("shield",L.t("Туннель и обход блокировок","Tunnel and DPI bypass"),L.t("TUN, DPI, DNS, MTU, локальный прокси","TUN, DPI, DNS, MTU, local proxy"),()->openSettings("tunnel"));
         rowSetting("apps",L.t("Приложения через VPN","Apps through VPN"),appModeSummary(),()->openSettings("apps"));
         toggle("power",L.t("Автозапуск","Autostart"),L.t("Подключаться после перезагрузки телефона","Connect after the phone restarts"),"autoConnect",false);
-        toggle("pulse",L.t("Быстрый сервер автоматически","Fastest server automatically"),L.t("Переключаться на самый быстрый сервер профиля, проверка каждые 3 минуты","Switch to the fastest server of the profile, checked every 3 minutes"),"autoSelect",false);
+        toggle("pulse",L.t("Быстрый сервер автоматически","Fastest server automatically"),L.t("Переключаться на самый быстрый сервер профиля, проверка каждые 3 минуты","Switch to the fastest server of the profile, checked every 3 minutes"),"autoSelect",true);
         section(L.t("Серверы","Servers"));
         rowSetting("refresh",L.t("Подписки","Subscriptions"),L.t("Обновление, User-Agent, HWID, сортировка","Updates, User-Agent, HWID, sorting"),()->openSettings("subscriptions"));
         rowSetting("pulse",L.t("Проверка задержки","Latency check"),PingInfo.label(s.optString("pingType","proxyGet")),()->openSettings("ping"));
