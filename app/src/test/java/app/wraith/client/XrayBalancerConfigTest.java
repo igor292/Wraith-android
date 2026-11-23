@@ -101,8 +101,14 @@ public class XrayBalancerConfigTest {
         assertNotNull(ruleWith(config,"outboundTag","direct"));
     }
 
-    @Test public void withoutAutoSelectPlainJsonStaysOnChosenServer()throws Exception{
+    @Test public void autoSelectIsEnabledByDefaultForPlainMultiServerJson()throws Exception{
         JSONObject config=buildPlain(new JSONObject());
+        assertTrue(XrayRuntimeConfig.hasBalancer(config,XrayRuntimeConfig.AUTO_BALANCER));
+        assertNotNull(config.optJSONObject("observatory"));
+    }
+
+    @Test public void explicitAutoSelectOffKeepsChosenServer()throws Exception{
+        JSONObject config=buildPlain(Json.obj("autoSelect",false));
         assertFalse(XrayRuntimeConfig.hasBalancer(config,XrayRuntimeConfig.AUTO_BALANCER));
         assertEquals("a",config.getJSONArray("outbounds").getJSONObject(0).getString("tag"));
     }

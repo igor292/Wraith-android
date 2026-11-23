@@ -1,0 +1,61 @@
+name: Android build
+
+on:
+  push:
+    branches: [feature/smart-connect-default]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Download official libXray Android package
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/XTLS/libXray/releases/download/v26.9.30/libxray-android.zip \
+            --output /tmp/libxray-android.zip
+          echo "394b59d147b37ab46003bd3f1d687ed3b2f637cabfc0cb863f179c5a87bddde3  /tmp/libxray-android.zip" | sha256sum --check
+          mkdir -p /tmp/libxray-package app/libs
+          unzip -q /tmp/libxray-android.zip -d /tmp/libxray-package
+          AAR="$(find /tmp/libxray-package -type f -iname '*.aar' -print -quit)"
+          if [ -z "$AAR" ]; then
+            echo "No Android AAR found in the official libXray archive"
+            exit 1
+          fi
+          cp "$AAR" app/libs/libXray.aar
+          ls -lh app/libs/libXray.aar
+
+      - name: Normalize Gradle wrapper line endings
+        run: sed -i 's/\r$//' gradlew
+
+      - name: Build installable debug APK
+        run: bash ./gradlew assembleDebug
+
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wraith-smart-connect-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
